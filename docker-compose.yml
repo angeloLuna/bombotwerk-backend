@@ -1,0 +1,49 @@
+version: '3.8'
+
+services:
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bombotwerk-frontend
+    ports:
+      - '3000:3000'
+    volumes:
+      - .:/app
+      - /app/node_modules
+      - /app/.next
+    environment:
+      - NODE_ENV=development
+    restart: always
+
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: bombotwerk-backend
+    ports:
+      - '4000:4000'
+    env_file:
+      - .env
+    depends_on:
+      - postgres
+    environment:
+      - DATABASE_URL=postgresql://bombotwerk_user:bombotwerk_secure_password@postgres:5432/bombotwerk_dev?schema=public
+    restart: always
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: bombotwerk-postgres
+    ports:
+      - '5432:5432'
+    environment:
+      - POSTGRES_USER=bombotwerk_user
+      - POSTGRES_PASSWORD=bombotwerk_secure_password
+      - POSTGRES_DB=bombotwerk_dev
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    restart: always
+
+volumes:
+  postgres_data:
+    driver: local

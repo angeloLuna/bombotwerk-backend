@@ -1,0 +1,124 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Core Models ----------
+model Product {
+  id          String          @id @default(cuid())
+  name        String
+  slug        String          @unique
+  description String?
+  price       Decimal         @default(0)
+  category    String?
+  isActive    Boolean         @default(true)
+  isNewArrival Boolean        @default(false)
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+  collection  Collection?    @relation(fields: [collectionId], references: [id])
+  collectionId String?
+  variants    ProductVariant[]
+  media       ProductMedia[]
+  orderItems  OrderItem[]     @relation("ProductOrderItems")
+}
+
+model ProductVariant {
+  id                 String        @id @default(cuid())
+  sku                String        @unique
+  color              String?
+  madeToOrderEnabled Boolean       @default(false)
+  product            Product       @relation(fields: [productId], references: [id])
+  productId          String
+  stocks             SizeStock[]
+  orderItems         OrderItem[]   @relation("VariantOrderItems")
+}
+
+// ---------- Inventory ----------
+model SizeStock {
+  id          String        @id @default(cuid())
+  size        String        // e.g., S, M, L, OS
+  quantity    Int           @default(0)
+  variant     ProductVariant @relation(fields: [variantId], references: [id])
+  variantId   String
+}
+
+// ---------- Collections & Media ----------
+model Collection {
+  id          String     @id @default(cuid())
+  name        String
+  slug        String     @unique
+  tagline     String?
+  description String?
+  bgImage     String?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  products    Product[]
+}
+
+model ProductMedia {
+  id        String   @id @default(cuid())
+  url       String
+  altText   String?
+  sortOrder Int      @default(0)
+  product   Product  @relation(fields: [productId], references: [id])
+  productId String
+}
+
+// ---------- Customers ----------
+model Customer {
+  id      String   @id @default(cuid())
+  email   String   @unique
+  name    String?
+  phone   String?
+  orders  Order[]
+}
+
+// ---------- Orders & Payments ----------
+model Order {
+  id               String      @id @default(cuid())
+  orderNumber      String      @unique
+  customer         Customer    @relation(fields: [customerId], references: [id])
+  customerId       String
+  shippingAddress  String?
+  billingAddress   String?
+  shippingMethod   String?
+  shippingCost     Decimal     @default(0)
+  totalAmount      Decimal     @default(0)
+  status           String      @default("pending")
+  createdAt        DateTime    @default(now())
+  updatedAt        DateTime    @updatedAt
+  items            OrderItem[] @relation("OrderItems")
+  payment          Payment?
+}
+
+model OrderItem {
+  id          String          @id @default(cuid())
+  order       Order            @relation("OrderItems", fields: [orderId], references: [id])
+  orderId     String
+  product     Product          @relation("ProductOrderItems", fields: [productId], references: [id])
+  productId   String
+  variant     ProductVariant   @relation("VariantOrderItems", fields: [variantId], references: [id])
+  variantId   String
+  size        String            // size from SizeStock
+  quantity    Int               @default(1)
+  price       Decimal           @default(0)
+}
+
+model Payment {
+  id                String   @id @default(cuid())
+  order             Order    @relation(fields: [orderId], references: [id])
+  orderId           String   @unique
+  method            String
+  transactionId     String?
+  status            String   @default("initiated")
+  amount            Decimal  @default(0)
+  provider          String   @default("mercadopago")
+  providerPaymentId String?  @unique
+  statusDetail      String?
+  createdAt         DateTime @default(now())
+  updatedAt         DateTime @updatedAt
+}
