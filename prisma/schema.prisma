@@ -79,46 +79,60 @@ model Customer {
 
 // ---------- Orders & Payments ----------
 model Order {
-  id               String      @id @default(cuid())
-  orderNumber      String      @unique
-  customer         Customer    @relation(fields: [customerId], references: [id])
-  customerId       String
-  shippingAddress  String?
-  billingAddress   String?
-  shippingMethod   String?
-  shippingCost     Decimal     @default(0)
-  totalAmount      Decimal     @default(0)
-  status           String      @default("pending")
-  createdAt        DateTime    @default(now())
-  updatedAt        DateTime    @updatedAt
-  items            OrderItem[] @relation("OrderItems")
-  payment          Payment?
+  id              String      @id @default(cuid())
+  orderNumber     String      @unique
+  customer        Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
+  customerId      String?
+  customerName    String?     // Guest/Customer Name snapshot
+  customerEmail   String?     // Guest/Customer Email snapshot
+  customerPhone   String?     // Guest/Customer Phone snapshot
+  shippingAddress String?
+  billingAddress  String?
+  shippingMethod  String?
+  subtotal        Decimal     @default(0)
+  shippingTotal   Decimal     @default(0)
+  total           Decimal     @default(0)
+  currency        String      @default("MXN")
+  status          String      @default("pending") // pending, paid, failed, cancelled
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+  items           OrderItem[] @relation("OrderItems")
+  payment         Payment?
 }
 
 model OrderItem {
   id          String          @id @default(cuid())
-  order       Order            @relation("OrderItems", fields: [orderId], references: [id])
+  order       Order           @relation("OrderItems", fields: [orderId], references: [id], onDelete: Cascade)
   orderId     String
-  product     Product          @relation("ProductOrderItems", fields: [productId], references: [id])
-  productId   String
-  variant     ProductVariant   @relation("VariantOrderItems", fields: [variantId], references: [id])
-  variantId   String
-  size        String            // size from SizeStock
-  quantity    Int               @default(1)
-  price       Decimal           @default(0)
+  product     Product?        @relation("ProductOrderItems", fields: [productId], references: [id], onDelete: SetNull)
+  productId   String?
+  variant     ProductVariant? @relation("VariantOrderItems", fields: [variantId], references: [id], onDelete: SetNull)
+  variantId   String?
+  productName String?         // Historical snapshot of the product name
+  variantName String?         // Historical snapshot of the variant (e.g. "Color / Size")
+  size        String          // size from SizeStock
+  quantity    Int             @default(1)
+  unitPrice   Decimal         @default(0)
+  total       Decimal         @default(0)
 }
 
 model Payment {
   id                String   @id @default(cuid())
-  order             Order    @relation(fields: [orderId], references: [id])
+  order             Order    @relation(fields: [orderId], references: [id], onDelete: Cascade)
   orderId           String   @unique
-  method            String
-  transactionId     String?
-  status            String   @default("initiated")
-  amount            Decimal  @default(0)
   provider          String   @default("mercadopago")
   providerPaymentId String?  @unique
-  statusDetail      String?
+  providerStatus    String?  // Mercado Pago's native status (e.g., approved, rejected, pending)
+  status            String   @default("pending") // internal status: pending, approved, rejected, in_process, cancelled
+  amount            Decimal  @default(0)
+  currency          String   @default("MXN")
+  paymentMethod     String?  // E.g., Visa, MasterCard, Oxxo
+  rawResponse       Json?    // Raw JSON from provider
   createdAt         DateTime @default(now())
   updatedAt         DateTime @updatedAt
+  
+  // Backward compatibility fields
+  method            String?
+  transactionId     String?
+  statusDetail      String?
 }

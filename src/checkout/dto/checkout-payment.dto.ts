@@ -58,6 +58,10 @@ export class CheckoutPaymentDto {
   email: string;
 
   @IsString()
+  @IsNotEmpty()
+  phone: string;
+
+  @IsString()
   @IsOptional()
   orderId?: string;
 }

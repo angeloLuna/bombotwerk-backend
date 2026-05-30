@@ -2,6 +2,8 @@ import { Injectable, NotFoundException, BadRequestException } from '@nestjs/comm
 import { PrismaService } from '../prisma/prisma.service';
 import { CheckoutPaymentDto } from './dto/checkout-payment.dto';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
+import * as fs from 'fs';
+import * as path from 'path';
 
 @Injectable()
 export class CheckoutService {
@@ -19,10 +21,10 @@ export class CheckoutService {
   }
 
   async processPayment(dto: CheckoutPaymentDto) {
-    const { formData, cartItems, shippingDetails, email, orderId } = dto;
+    const { formData, cartItems, shippingDetails, email, phone, orderId } = dto;
 
     // 1. Calculate & validate total amount on backend
-    let computedTotal = 0;
+    let subtotal = 0;
     const itemsData = [];
 
     for (const item of cartItems) {
@@ -43,19 +45,22 @@ export class CheckoutService {
 
       // Add to running totals
       const itemPrice = Number(product.price);
-      computedTotal += itemPrice * item.quantity;
+      subtotal += itemPrice * item.quantity;
 
       itemsData.push({
         productId: item.productId,
         variantId: item.variantId,
+        productName: product.name,
+        variantName: `${variant.color || 'Standard'} / ${item.size}`,
         size: item.size,
         quantity: item.quantity,
-        price: product.price,
+        unitPrice: product.price,
+        total: itemPrice * item.quantity,
       });
     }
 
     const shippingCost = shippingDetails.method === 'express' ? 250 : 0;
-    computedTotal += shippingCost;
+    const computedTotal = subtotal + shippingCost;
 
     // Strict validation of transaction amount
     const clientAmount = Number(formData.transaction_amount);
@@ -65,7 +70,7 @@ export class CheckoutService {
       );
     }
 
-    // 2. Find or create customer
+    // 2. Find or create customer (optional historical tracking)
     let customer = await this.prisma.customer.findUnique({
       where: { email },
     });
@@ -74,7 +79,13 @@ export class CheckoutService {
         data: {
           email,
           name: shippingDetails.name,
+          phone,
         },
+      });
+    } else if (phone && !customer.phone) {
+      await this.prisma.customer.update({
+        where: { id: customer.id },
+        data: { phone },
       });
     }
 
@@ -91,15 +102,23 @@ export class CheckoutService {
         throw new BadRequestException(`Order with ID "${orderId}" is already in "${order.status}" status.`);
       }
     } else {
-      const orderNumber = `BOMBO-${Date.now()}`;
+      const count = await this.prisma.order.count();
+      const nextNum = String(count + 1).padStart(6, '0');
+      const orderNumber = `BT-${new Date().getFullYear()}-${nextNum}`;
+
       order = await this.prisma.order.create({
         data: {
           orderNumber,
           customerId: customer.id,
+          customerName: shippingDetails.name,
+          customerEmail: email,
+          customerPhone: phone,
           shippingAddress: `${shippingDetails.address}, ${shippingDetails.city}, C.P. ${shippingDetails.zip}`,
           shippingMethod: shippingDetails.method,
-          shippingCost,
-          totalAmount: computedTotal,
+          subtotal,
+          shippingTotal: shippingCost,
+          total: computedTotal,
+          currency: 'MXN',
           status: 'pending',
           items: {
             create: itemsData,
@@ -119,7 +138,6 @@ export class CheckoutService {
         issuer_id: formData.issuer_id ? Number(formData.issuer_id) : undefined,
         payer: {
           email: email,
-          first_name: shippingDetails.name,
         },
         external_reference: order.id,
         metadata: {
@@ -132,6 +150,21 @@ export class CheckoutService {
       }
 
       console.log(`[MercadoPago] Creating payment for Order ${order.orderNumber}...`);
+      console.log(`[MercadoPago] Request Body:`, JSON.stringify(body, null, 2));
+      console.log(`[MercadoPago] Frontend formData:`, JSON.stringify(formData, null, 2));
+      
+      const logFilePath = path.join(process.cwd(), 'payment-debug.log');
+      const logData = {
+        timestamp: new Date().toISOString(),
+        orderNumber: order.orderNumber,
+        accessTokenPrefix: process.env.MERCADOPAGO_ACCESS_TOKEN 
+          ? process.env.MERCADOPAGO_ACCESS_TOKEN.substring(0, 25) + '...' 
+          : 'UNDEFINED',
+        body,
+        formData,
+      };
+      fs.appendFileSync(logFilePath, `REQUEST:\n${JSON.stringify(logData, null, 2)}\n---\n`);
+
       const paymentResponse = await this.paymentClient.create({ body });
       const mpStatus = paymentResponse.status;
       const mpStatusDetail = paymentResponse.status_detail;
@@ -147,47 +180,65 @@ export class CheckoutService {
         localPaymentStatus = 'rejected';
       } else if (mpStatus === 'cancelled') {
         localPaymentStatus = 'cancelled';
-      } else if (mpStatus === 'in_process') {
+      } else if (mpStatus === 'in_process' || mpStatus === 'pending') {
         localPaymentStatus = 'in_process';
+      }
+
+      // Map payment status to order status
+      let localOrderStatus = 'pending';
+      if (localPaymentStatus === 'approved') {
+        localOrderStatus = 'paid';
+      } else if (localPaymentStatus === 'rejected') {
+        localOrderStatus = 'failed';
+      } else if (localPaymentStatus === 'cancelled') {
+        localOrderStatus = 'cancelled';
       }
 
       // 5. Update local Payment in DB
       await this.prisma.payment.upsert({
         where: { orderId: order.id },
         update: {
-          method: formData.payment_method_id,
           amount: computedTotal,
           status: localPaymentStatus,
+          providerStatus: mpStatus,
           statusDetail: mpStatusDetail,
           providerPaymentId: mpId,
           transactionId: mpId,
+          method: formData.payment_method_id,
+          paymentMethod: formData.payment_method_id,
+          currency: 'MXN',
+          rawResponse: JSON.parse(JSON.stringify(paymentResponse)),
         },
         create: {
           orderId: order.id,
-          method: formData.payment_method_id,
           amount: computedTotal,
           status: localPaymentStatus,
+          providerStatus: mpStatus,
           statusDetail: mpStatusDetail,
           provider: 'mercadopago',
           providerPaymentId: mpId,
           transactionId: mpId,
+          method: formData.payment_method_id,
+          paymentMethod: formData.payment_method_id,
+          currency: 'MXN',
+          rawResponse: JSON.parse(JSON.stringify(paymentResponse)),
         },
       });
 
       // 6. Update local Order status
-      let localOrderStatus = 'pending';
-      if (localPaymentStatus === 'approved') {
-        localOrderStatus = 'paid';
-      } else if (localPaymentStatus === 'rejected') {
-        localOrderStatus = 'rejected';
-      } else if (localPaymentStatus === 'cancelled') {
-        localOrderStatus = 'cancelled';
-      }
-
       const updatedOrder = await this.prisma.order.update({
         where: { id: order.id },
         data: { status: localOrderStatus },
       });
+
+      const successLogData = {
+        timestamp: new Date().toISOString(),
+        orderNumber: order.orderNumber,
+        status: localPaymentStatus,
+        statusDetail: mpStatusDetail,
+        paymentId: mpId,
+      };
+      fs.appendFileSync(logFilePath, `SUCCESS:\n${JSON.stringify(successLogData, null, 2)}\n---\n`);
 
       return {
         success: localPaymentStatus === 'approved',
@@ -198,40 +249,60 @@ export class CheckoutService {
         providerPaymentId: mpId,
       };
 
-    } catch (error) {
+    } catch (error: any) {
       console.error(`[MercadoPago] Exception during payment processing for Order ${order.id}:`, error);
+      
+      const detailedErrorObj = {
+        message: error.message,
+        name: error.name,
+        status: error.status,
+        statusCode: error.statusCode,
+        cause: error.cause,
+        apiResponse: error.apiResponse ? {
+          status: error.apiResponse.status,
+          statusText: error.apiResponse.statusText,
+          body: error.apiResponse.body,
+        } : undefined,
+      };
+      
+      const detailedError = JSON.stringify(detailedErrorObj, null, 2);
+      console.error(`[MercadoPago] Full Error Details:`, detailedError);
+
+      const logFilePath = path.join(process.cwd(), 'payment-debug.log');
+      fs.appendFileSync(logFilePath, `ERROR:\n${detailedError}\n---\n`);
+      
+      const errorMessage = `MercadoPago Error: ${error.message || 'Unknown error'}`;
 
       // Create/Update the payment record as rejected
       await this.prisma.payment.upsert({
         where: { orderId: order.id },
         update: {
           status: 'rejected',
-          statusDetail: error.message || 'API_ERROR',
+          statusDetail: errorMessage.substring(0, 1000),
         },
         create: {
           orderId: order.id,
-          method: formData.payment_method_id || 'unknown',
           amount: computedTotal,
           status: 'rejected',
-          statusDetail: error.message || 'API_ERROR',
+          statusDetail: errorMessage.substring(0, 1000),
           provider: 'mercadopago',
+          method: formData.payment_method_id || 'unknown',
+          paymentMethod: formData.payment_method_id || 'unknown',
         },
       });
 
       await this.prisma.order.update({
         where: { id: order.id },
-        data: { status: 'rejected' },
+        data: { status: 'failed' },
       });
 
-      throw new BadRequestException(error.message || 'Payment processing failed');
+      throw new BadRequestException(errorMessage);
     }
   }
 
   async handleWebhook(body: any) {
     console.log('[MercadoPago Webhook] Received event payload:', JSON.stringify(body));
 
-    // Webhook notifications structure:
-    // { action: 'payment.updated', type: 'payment', data: { id: '...' } }
     if (body.type !== 'payment' || !body.data?.id) {
       console.log('[MercadoPago Webhook] Event is not of type "payment", ignoring.');
       return { received: true };
@@ -241,7 +312,6 @@ export class CheckoutService {
     console.log(`[MercadoPago Webhook] Processing payment ID: ${paymentId}`);
 
     try {
-      // Query Mercado Pago directly to get the source of truth
       const paymentResponse = await this.paymentClient.get({ id: paymentId });
       const mpStatus = paymentResponse.status;
       const mpStatusDetail = paymentResponse.status_detail;
@@ -252,7 +322,6 @@ export class CheckoutService {
         return { received: true };
       }
 
-      // Check if order exists in local DB
       const order = await this.prisma.order.findUnique({
         where: { id: orderId },
       });
@@ -272,10 +341,20 @@ export class CheckoutService {
         localPaymentStatus = 'rejected';
       } else if (mpStatus === 'cancelled') {
         localPaymentStatus = 'cancelled';
-      } else if (mpStatus === 'in_process') {
+      } else if (mpStatus === 'in_process' || mpStatus === 'pending') {
         localPaymentStatus = 'in_process';
       } else if (mpStatus === 'refunded') {
         localPaymentStatus = 'refunded';
+      }
+
+      // Map payment status to order status
+      let localOrderStatus = order.status;
+      if (localPaymentStatus === 'approved') {
+        localOrderStatus = 'paid';
+      } else if (localPaymentStatus === 'rejected') {
+        localOrderStatus = 'failed';
+      } else if (localPaymentStatus === 'cancelled') {
+        localOrderStatus = 'cancelled';
       }
 
       // Update local Payment record
@@ -283,31 +362,30 @@ export class CheckoutService {
         where: { orderId: order.id },
         update: {
           status: localPaymentStatus,
+          providerStatus: mpStatus,
           statusDetail: mpStatusDetail,
           providerPaymentId: paymentId.toString(),
           transactionId: paymentId.toString(),
+          rawResponse: JSON.parse(JSON.stringify(paymentResponse)),
+          paymentMethod: paymentResponse.payment_method_id,
+          amount: Number(paymentResponse.transaction_amount || 0),
+          currency: paymentResponse.currency_id || 'MXN',
         },
         create: {
           orderId: order.id,
-          method: paymentResponse.payment_method_id || 'unknown',
-          amount: Number(paymentResponse.transaction_amount || 0),
-          status: localPaymentStatus,
-          statusDetail: mpStatusDetail,
           provider: 'mercadopago',
+          status: localPaymentStatus,
+          providerStatus: mpStatus,
+          statusDetail: mpStatusDetail,
           providerPaymentId: paymentId.toString(),
           transactionId: paymentId.toString(),
+          rawResponse: JSON.parse(JSON.stringify(paymentResponse)),
+          method: paymentResponse.payment_method_id || 'unknown',
+          paymentMethod: paymentResponse.payment_method_id || 'unknown',
+          amount: Number(paymentResponse.transaction_amount || 0),
+          currency: paymentResponse.currency_id || 'MXN',
         },
       });
-
-      // Update local Order record status
-      let localOrderStatus = order.status;
-      if (localPaymentStatus === 'approved') {
-        localOrderStatus = 'paid';
-      } else if (localPaymentStatus === 'rejected') {
-        localOrderStatus = 'rejected';
-      } else if (localPaymentStatus === 'cancelled') {
-        localOrderStatus = 'cancelled';
-      }
 
       if (order.status !== localOrderStatus) {
         await this.prisma.order.update({
@@ -322,7 +400,10 @@ export class CheckoutService {
       return { success: true };
     } catch (error) {
       console.error(`[MercadoPago Webhook] Error processing payment verification for ID ${paymentId}:`, error);
-      throw error; // Re-throw to signal retry if needed, though MP expects 200/201.
+      throw error;
     }
   }
 }
+
+
+
