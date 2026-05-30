@@ -1,6 +1,3 @@
-// TODO: Protect with AdminGuard when admin authentication is implemented.
-// For now, these endpoints are publicly accessible on the internal network.
-
 import {
   Controller,
   Get,
@@ -11,13 +8,18 @@ import {
   Body,
   HttpCode,
   HttpStatus,
+  UseGuards,
 } from '@nestjs/common';
 import { AdminProductsService } from './admin-products.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AdminGuard } from '../auth/guards/admin.guard';
 
 @Controller('admin/products')
+@UseGuards(JwtAuthGuard, AdminGuard)
 export class AdminProductsController {
+
   constructor(private readonly service: AdminProductsService) {}
 
   @Get()

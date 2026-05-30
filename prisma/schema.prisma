@@ -75,7 +75,21 @@ model Customer {
   name    String?
   phone   String?
   orders  Order[]
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId  String?
 }
+
+model User {
+  id        String     @id @default(cuid())
+  email     String     @unique
+  name      String?
+  image     String?
+  role      String     @default("customer") // admin | customer
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+  customers Customer[]
+}
+
 
 // ---------- Orders & Payments ----------
 model Order {
