@@ -20,8 +20,15 @@ export class CheckoutController {
 
   @Post('calculate-shipping')
   @HttpCode(HttpStatus.OK)
-  async calculateShipping(@Body() dto: CalculateShippingDto) {
-    return this.pricingService.calculateShipping(dto.cartItems, !!dto.splitShippingSelected);
+  @UseGuards(OptionalJwtAuthGuard)
+  async calculateShipping(@Body() dto: CalculateShippingDto, @Req() req: any) {
+    const user = req.user;
+    const bypass = dto.bypassShipping && user?.role === 'admin';
+    return this.pricingService.calculateShipping(
+      dto.cartItems,
+      !!dto.splitShippingSelected,
+      !!bypass
+    );
   }
 }
 

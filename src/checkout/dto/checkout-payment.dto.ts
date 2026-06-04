@@ -41,6 +41,9 @@ export class ShippingDetailsDto {
 
   @IsOptional()
   splitShippingSelected?: boolean;
+
+  @IsOptional()
+  bypassShipping?: boolean;
 }
 
 export class CheckoutPaymentDto {
@@ -77,4 +80,7 @@ export class CalculateShippingDto {
 
   @IsOptional()
   splitShippingSelected?: boolean;
+
+  @IsOptional()
+  bypassShipping?: boolean;
 }

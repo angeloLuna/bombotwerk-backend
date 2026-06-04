@@ -23,7 +23,11 @@ export class CheckoutPricingService {
   readonly MADE_TO_ORDER_TOTAL_MAX_BUSINESS_DAYS = 14;
   readonly SPLIT_SHIPPING_COST_MXN = 150;
 
-  async calculateShipping(cartItems: CartItemInput[], splitShippingSelected: boolean) {
+  async calculateShipping(
+    cartItems: CartItemInput[],
+    splitShippingSelected: boolean,
+    bypassShipping?: boolean
+  ) {
     let subtotal = 0;
     let hasInStockItems = false;
     let hasMadeToOrderItems = false;
@@ -109,10 +113,10 @@ export class CheckoutPricingService {
     const finalSplitShippingSelected = splitShippingAvailable ? splitShippingSelected : false;
 
     // Shipping rules
-    const isFreeShipping = subtotal >= this.FREE_SHIPPING_THRESHOLD_MXN;
+    const isFreeShipping = !!bypassShipping || subtotal >= this.FREE_SHIPPING_THRESHOLD_MXN;
     const shippingCost = isFreeShipping ? 0 : this.STANDARD_SHIPPING_COST_MXN;
     const amountRemainingForFreeShipping = Math.max(0, this.FREE_SHIPPING_THRESHOLD_MXN - subtotal);
-    const splitShippingCost = finalSplitShippingSelected ? this.SPLIT_SHIPPING_COST_MXN : 0;
+    const splitShippingCost = finalSplitShippingSelected && !bypassShipping ? this.SPLIT_SHIPPING_COST_MXN : 0;
     const total = subtotal + shippingCost + splitShippingCost;
 
     // Delivery estimates
@@ -155,11 +159,13 @@ export class CheckoutPricingService {
       fulfillmentNotes = 'Entrega estimada: 2 a 5 días hábiles.';
     }
 
-    const shippingNotes = finalSplitShippingSelected
-      ? 'Envío dividido (+ $150 MXN)'
-      : isFreeShipping
-        ? 'Envío estándar (Gratis)'
-        : 'Envío estándar ($150 MXN)';
+    const shippingNotes = bypassShipping
+      ? 'Envío gratis (Pruebas)'
+      : finalSplitShippingSelected
+        ? 'Envío dividido (+ $150 MXN)'
+        : isFreeShipping
+          ? 'Envío estándar (Gratis)'
+          : 'Envío estándar ($150 MXN)';
 
     return {
       subtotal,

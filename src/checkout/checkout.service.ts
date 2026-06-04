@@ -29,10 +29,13 @@ export class CheckoutService {
   async processPayment(dto: CheckoutPaymentDto, user?: any) {
     const { formData, cartItems, shippingDetails, email, phone, orderId } = dto;
 
+    const bypass = shippingDetails.bypassShipping && user?.role === 'admin';
+
     // 1. Calculate & validate total amount on backend using CheckoutPricingService
     const calculation = await this.pricingService.calculateShipping(
       cartItems,
-      !!shippingDetails.splitShippingSelected
+      !!shippingDetails.splitShippingSelected,
+      !!bypass
     );
 
     const computedTotal = calculation.total;

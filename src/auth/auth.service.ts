@@ -2,26 +2,34 @@ import { Injectable } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 
+export function getAdminEmails(adminEmailsEnv: string): string[] {
+  return adminEmailsEnv
+    .split(',')
+    .map((email) => email.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+export function isAdminEmail(email: string | null | undefined, adminEmailsEnv: string): boolean {
+  if (!email) return false;
+  return getAdminEmails(adminEmailsEnv).includes(email.trim().toLowerCase());
+}
+
 @Injectable()
 export class AuthService {
-  private adminEmails: string[] = [];
+  private adminEmailsEnv = '';
 
   constructor(
     private readonly prisma: PrismaService,
     private readonly configService: ConfigService,
   ) {
-    const adminEmailsEnv = this.configService.get<string>('ADMIN_EMAILS') || '';
-    this.adminEmails = adminEmailsEnv
-      .split(',')
-      .map((email) => email.trim().toLowerCase())
-      .filter(Boolean);
+    this.adminEmailsEnv = this.configService.get<string>('ADMIN_EMAILS') || '';
   }
 
   async googleLogin(payload: { email: string; name?: string; image?: string; provider?: string }) {
     const normalizedEmail = payload.email.trim().toLowerCase();
     
     // Check if the user should be an admin
-    const isAdmin = this.adminEmails.includes(normalizedEmail);
+    const isAdmin = isAdminEmail(normalizedEmail, this.adminEmailsEnv);
     const role = isAdmin ? 'admin' : 'customer';
 
     // Upsert the user in the database
