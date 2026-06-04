@@ -13,6 +13,10 @@ class GoogleLoginDto {
   @IsString()
   @IsOptional()
   image?: string;
+
+  @IsString()
+  @IsOptional()
+  provider?: string;
 }
 
 @Controller('auth')

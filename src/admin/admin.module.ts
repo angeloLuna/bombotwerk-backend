@@ -7,8 +7,11 @@ import { AdminProductsService } from './admin-products.service';
 import { AdminCollectionsService } from './admin-collections.service';
 import { AdminOrdersService } from './admin-orders.service';
 
+import { StorageModule } from '../storage/storage.module';
+import { EmailModule } from '../email/email.module';
+
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, StorageModule, EmailModule],
   controllers: [AdminProductsController, AdminCollectionsController, AdminOrdersController],
   providers: [AdminProductsService, AdminCollectionsService, AdminOrdersService],
 })

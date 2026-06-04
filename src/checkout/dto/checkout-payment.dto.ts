@@ -1,7 +1,7 @@
 import { IsString, IsNotEmpty, IsOptional, IsArray, IsNumber, ValidateNested, IsEmail } from 'class-validator';
 import { Type } from 'class-transformer';
 
-class CartItemDto {
+export class CartItemDto {
   @IsString()
   @IsNotEmpty()
   productId: string;
@@ -18,7 +18,7 @@ class CartItemDto {
   quantity: number;
 }
 
-class ShippingDetailsDto {
+export class ShippingDetailsDto {
   @IsString()
   @IsNotEmpty()
   name: string;
@@ -37,7 +37,10 @@ class ShippingDetailsDto {
 
   @IsString()
   @IsNotEmpty()
-  method: 'express' | 'crafted';
+  method: string;
+
+  @IsOptional()
+  splitShippingSelected?: boolean;
 }
 
 export class CheckoutPaymentDto {
@@ -64,4 +67,14 @@ export class CheckoutPaymentDto {
   @IsString()
   @IsOptional()
   orderId?: string;
+}
+
+export class CalculateShippingDto {
+  @IsArray()
+  @ValidateNested({ each: true })
+  @Type(() => CartItemDto)
+  cartItems: CartItemDto[];
+
+  @IsOptional()
+  splitShippingSelected?: boolean;
 }

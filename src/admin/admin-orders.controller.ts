@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
 import { AdminOrdersService } from './admin-orders.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
@@ -23,5 +23,11 @@ export class AdminOrdersController {
   @Get(':id')
   findOne(@Param('id') id: string) {
     return this.service.findOne(id);
+  }
+
+  @Post(':id/resend-email')
+  @HttpCode(HttpStatus.OK)
+  resendEmail(@Param('id') id: string) {
+    return this.service.resendEmail(id);
   }
 }

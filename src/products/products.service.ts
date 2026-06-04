@@ -12,14 +12,23 @@ export class ProductsService {
     const formattedVariants = product.variants.map((v: any) => {
       const formattedStocks = v.stocks.map((s: any) => {
         let availability: 'ready-to-ship' | 'crafted-cdmx' | 'unavailable' = 'unavailable';
-        let availabilityText = 'Unavailable';
+        let availabilityText = 'Agotado';
 
-        if (s.quantity > 0) {
-          availability = 'ready-to-ship';
-          availabilityText = 'Ships within 24h';
-        } else if (s.quantity === 0 && v.madeToOrderEnabled) {
+        if (v.availabilityMode === 'discontinued') {
+          availability = 'unavailable';
+          availabilityText = 'Descontinuado';
+        } else if (v.availabilityMode === 'made_to_order_only') {
           availability = 'crafted-cdmx';
-          availabilityText = 'Crafted in CDMX — Ready in 5–7 days';
+          availabilityText = `Hecho bajo pedido · Entrega estimada ${v.madeToOrderMinDays ?? 7}–${v.madeToOrderMaxDays ?? 9} días`;
+        } else if (s.quantity > 0) {
+          availability = 'ready-to-ship';
+          availabilityText = 'Disponible';
+        } else if (s.quantity === 0 && v.availabilityMode === 'stock_and_made_to_order') {
+          availability = 'crafted-cdmx';
+          availabilityText = `Bajo pedido · Entrega estimada ${v.madeToOrderMinDays ?? 7}–${v.madeToOrderMaxDays ?? 9} días`;
+        } else {
+          availability = 'unavailable';
+          availabilityText = 'Agotado';
         }
 
         return {
@@ -35,7 +44,9 @@ export class ProductsService {
         id: v.id,
         sku: v.sku,
         color: v.color,
-        madeToOrderEnabled: v.madeToOrderEnabled,
+        availabilityMode: v.availabilityMode,
+        madeToOrderMinDays: v.madeToOrderMinDays,
+        madeToOrderMaxDays: v.madeToOrderMaxDays,
         stocks: formattedStocks,
       };
     });
@@ -64,9 +75,16 @@ export class ProductsService {
       availabilityText = 'Bajo pedido';
     }
 
+    const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    const formattedImages = (product.images || []).map((img: any) => ({
+      ...img,
+      url: (img.key && publicBaseUrl) ? `${publicBaseUrl}/${img.key}` : img.url,
+    }));
+
     return {
       ...product,
       variants: formattedVariants,
+      images: formattedImages,
       availability: productAvailability,
       availabilityText,
     };
@@ -78,6 +96,8 @@ export class ProductsService {
     availability?: string;
     sort?: string;
     search?: string;
+    isFeatured?: boolean;
+    sale?: boolean;
   }) {
     const where: any = { isActive: true };
 
@@ -87,6 +107,10 @@ export class ProductsService {
 
     if (filters?.collection) {
       where.collection = { slug: filters.collection };
+    }
+
+    if (filters?.isFeatured !== undefined) {
+      where.isFeatured = filters.isFeatured;
     }
 
     if (filters?.search) {
@@ -118,6 +142,13 @@ export class ProductsService {
         media: {
           orderBy: { sortOrder: 'asc' },
         },
+        images: {
+          orderBy: [
+            { sortOrder: 'asc' },
+            { isCover: 'desc' },
+            { createdAt: 'asc' },
+          ],
+        },
         collection: {
           select: {
             name: true,
@@ -137,6 +168,22 @@ export class ProductsService {
       }
     }
 
+    if (filters?.sale === true) {
+      formatted = formatted.filter((p) => {
+        const hasDiscount = p.compareAtPrice !== null && p.compareAtPrice !== undefined;
+        
+        // Sum total stock quantities
+        const totalStock = p.variants?.reduce((sum: number, v: any) => {
+          return sum + (v.stocks?.reduce((sSum: number, s: any) => sSum + s.quantity, 0) ?? 0);
+        }, 0) ?? 0;
+        
+        // Low stock is > 0 and <= 5 (as per requirements "también puede incluir productos con bajo stock")
+        const hasLowStock = totalStock > 0 && totalStock <= 5;
+        
+        return hasDiscount || hasLowStock;
+      });
+    }
+
     return formatted;
   }
 
@@ -152,6 +199,13 @@ export class ProductsService {
         media: {
           orderBy: { sortOrder: 'asc' },
         },
+        images: {
+          orderBy: [
+            { sortOrder: 'asc' },
+            { isCover: 'desc' },
+            { createdAt: 'asc' },
+          ],
+        },
         collection: true,
       },
     });
@@ -161,5 +215,22 @@ export class ProductsService {
     }
 
     return this.formatProductAvailabilities(product);
+  }
+
+  async findImagesByProductId(productId: string) {
+    const images = await this.prisma.productImage.findMany({
+      where: { productId },
+      orderBy: [
+        { sortOrder: 'asc' },
+        { isCover: 'desc' },
+        { createdAt: 'asc' },
+      ],
+    });
+
+    const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    return images.map((img) => ({
+      ...img,
+      url: (img.key && publicBaseUrl) ? `${publicBaseUrl}/${img.key}` : img.url,
+    }));
   }
 }

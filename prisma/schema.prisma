@@ -17,12 +17,15 @@ model Product {
   category    String?
   isActive    Boolean         @default(true)
   isNewArrival Boolean        @default(false)
+  isFeatured  Boolean         @default(false)
+  compareAtPrice Decimal?
   createdAt   DateTime        @default(now())
   updatedAt   DateTime        @updatedAt
   collection  Collection?    @relation(fields: [collectionId], references: [id])
   collectionId String?
   variants    ProductVariant[]
   media       ProductMedia[]
+  images      ProductImage[]
   orderItems  OrderItem[]     @relation("ProductOrderItems")
 }
 
@@ -30,7 +33,9 @@ model ProductVariant {
   id                 String        @id @default(cuid())
   sku                String        @unique
   color              String?
-  madeToOrderEnabled Boolean       @default(false)
+  availabilityMode   String        @default("stock_only") // stock_only, stock_and_made_to_order, made_to_order_only, discontinued
+  madeToOrderMinDays Int?          @default(7)
+  madeToOrderMaxDays Int?          @default(9)
   product            Product       @relation(fields: [productId], references: [id])
   productId          String
   stocks             SizeStock[]
@@ -54,6 +59,8 @@ model Collection {
   tagline     String?
   description String?
   bgImage     String?
+  coverImageUrl String?
+  heroImageUrl  String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   products    Product[]
@@ -85,9 +92,11 @@ model User {
   name      String?
   image     String?
   role      String     @default("customer") // admin | customer
+  provider  String?
   createdAt DateTime   @default(now())
   updatedAt DateTime   @updatedAt
   customers Customer[]
+  orders    Order[]
 }
 
 
@@ -97,10 +106,18 @@ model Order {
   orderNumber     String      @unique
   customer        Customer?   @relation(fields: [customerId], references: [id], onDelete: SetNull)
   customerId      String?
+  user            User?       @relation(fields: [userId], references: [id], onDelete: SetNull)
+  userId          String?
+  guestEmail      String?
   customerName    String?     // Guest/Customer Name snapshot
-  customerEmail   String?     // Guest/Customer Email snapshot
+  customerEmail   String      // Guest/Customer Email snapshot
   customerPhone   String?     // Guest/Customer Phone snapshot
   shippingAddress String?
+  
+  // Email confirmation control fields
+  confirmationEmailSentAt DateTime?
+  confirmationEmailStatus String?   // e.g., 'sending', 'sent', 'failed'
+  confirmationEmailError  String?
   billingAddress  String?
   shippingMethod  String?
   subtotal        Decimal     @default(0)
@@ -112,22 +129,45 @@ model Order {
   updatedAt       DateTime    @updatedAt
   items           OrderItem[] @relation("OrderItems")
   payment         Payment?
+
+  // --- Shipping snapshot fields ---
+  shippingLabel                        String?   @default("Envío estándar")
+  shippingCost                         Decimal   @default(0)
+  isFreeShipping                       Boolean   @default(false)
+  freeShippingThreshold                Decimal   @default(1000)
+  amountRemainingForFreeShipping       Decimal   @default(0)
+  hasInStockItems                      Boolean   @default(false)
+  hasMadeToOrderItems                  Boolean   @default(false)
+  isMixedFulfillmentCart               Boolean   @default(false)
+  splitShippingSelected                Boolean   @default(false)
+  splitShippingCost                    Decimal   @default(0)
+  estimatedDeliveryMinBusinessDays     Int?
+  estimatedDeliveryMaxBusinessDays     Int?
+  firstPackageEstimatedMinBusinessDays  Int?
+  firstPackageEstimatedMaxBusinessDays  Int?
+  secondPackageEstimatedMinBusinessDays Int?
+  secondPackageEstimatedMaxBusinessDays Int?
+  fulfillmentNotes                     String?
+  shippingNotes                        String?
 }
 
 model OrderItem {
-  id          String          @id @default(cuid())
-  order       Order           @relation("OrderItems", fields: [orderId], references: [id], onDelete: Cascade)
-  orderId     String
-  product     Product?        @relation("ProductOrderItems", fields: [productId], references: [id], onDelete: SetNull)
-  productId   String?
-  variant     ProductVariant? @relation("VariantOrderItems", fields: [variantId], references: [id], onDelete: SetNull)
-  variantId   String?
-  productName String?         // Historical snapshot of the product name
-  variantName String?         // Historical snapshot of the variant (e.g. "Color / Size")
-  size        String          // size from SizeStock
-  quantity    Int             @default(1)
-  unitPrice   Decimal         @default(0)
-  total       Decimal         @default(0)
+  id                 String          @id @default(cuid())
+  order              Order           @relation("OrderItems", fields: [orderId], references: [id], onDelete: Cascade)
+  orderId            String
+  product            Product?        @relation("ProductOrderItems", fields: [productId], references: [id], onDelete: SetNull)
+  productId          String?
+  variant            ProductVariant? @relation("VariantOrderItems", fields: [variantId], references: [id], onDelete: SetNull)
+  variantId          String?
+  productName        String?         // Historical snapshot of the product name
+  variantName        String?         // Historical snapshot of the variant (e.g. "Color / Size")
+  size               String          // size from SizeStock
+  quantity           Int             @default(1)
+  unitPrice          Decimal         @default(0)
+  total              Decimal         @default(0)
+  fulfillmentType    String          @default("stock") // "stock" | "made_to_order"
+  madeToOrderMinDays Int?
+  madeToOrderMaxDays Int?
 }
 
 model Payment {
@@ -149,4 +189,40 @@ model Payment {
   method            String?
   transactionId     String?
   statusDetail      String?
+}
+
+model ProductImage {
+  id        String           @id @default(cuid())
+  productId String
+  product   Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  url       String
+  key       String?
+  alt       String?
+  type      ProductImageType @default(catalog)
+  view      ProductImageView @default(not_applicable)
+  sortOrder Int              @default(0)
+  isCover   Boolean          @default(false)
+
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+
+  @@index([productId])
+}
+
+enum ProductImageType {
+  catalog
+  editorial
+  detail
+  technical
+  styling
+  community
+}
+
+enum ProductImageView {
+  front
+  back
+  side
+  detail
+  not_applicable
 }

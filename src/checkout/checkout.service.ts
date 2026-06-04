@@ -4,12 +4,18 @@ import { CheckoutPaymentDto } from './dto/checkout-payment.dto';
 import { MercadoPagoConfig, Payment } from 'mercadopago';
 import * as fs from 'fs';
 import * as path from 'path';
+import { CheckoutPricingService } from './checkout-pricing.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class CheckoutService {
   private paymentClient: Payment;
 
-  constructor(private prisma: PrismaService) {
+  constructor(
+    private prisma: PrismaService,
+    private pricingService: CheckoutPricingService,
+    private emailService: EmailService
+  ) {
     const accessToken = process.env.MERCADOPAGO_ACCESS_TOKEN;
     if (!accessToken) {
       console.warn('WARNING: MERCADOPAGO_ACCESS_TOKEN is not defined in the environment variables.');
@@ -20,47 +26,16 @@ export class CheckoutService {
     this.paymentClient = new Payment(client);
   }
 
-  async processPayment(dto: CheckoutPaymentDto) {
+  async processPayment(dto: CheckoutPaymentDto, user?: any) {
     const { formData, cartItems, shippingDetails, email, phone, orderId } = dto;
 
-    // 1. Calculate & validate total amount on backend
-    let subtotal = 0;
-    const itemsData = [];
+    // 1. Calculate & validate total amount on backend using CheckoutPricingService
+    const calculation = await this.pricingService.calculateShipping(
+      cartItems,
+      !!shippingDetails.splitShippingSelected
+    );
 
-    for (const item of cartItems) {
-      const product = await this.prisma.product.findUnique({
-        where: { id: item.productId },
-      });
-      if (!product) {
-        throw new NotFoundException(`Product with ID "${item.productId}" not found.`);
-      }
-
-      // Verify the variant exists
-      const variant = await this.prisma.productVariant.findFirst({
-        where: { id: item.variantId, productId: item.productId },
-      });
-      if (!variant) {
-        throw new NotFoundException(`Variant with ID "${item.variantId}" not found for product "${product.name}".`);
-      }
-
-      // Add to running totals
-      const itemPrice = Number(product.price);
-      subtotal += itemPrice * item.quantity;
-
-      itemsData.push({
-        productId: item.productId,
-        variantId: item.variantId,
-        productName: product.name,
-        variantName: `${variant.color || 'Standard'} / ${item.size}`,
-        size: item.size,
-        quantity: item.quantity,
-        unitPrice: product.price,
-        total: itemPrice * item.quantity,
-      });
-    }
-
-    const shippingCost = shippingDetails.method === 'express' ? 250 : 0;
-    const computedTotal = subtotal + shippingCost;
+    const computedTotal = calculation.total;
 
     // Strict validation of transaction amount
     const clientAmount = Number(formData.transaction_amount);
@@ -80,17 +55,25 @@ export class CheckoutService {
           email,
           name: shippingDetails.name,
           phone,
+          userId: user?.id || null,
         },
       });
-    } else if (phone && !customer.phone) {
-      await this.prisma.customer.update({
-        where: { id: customer.id },
-        data: { phone },
-      });
+    } else {
+      const updateData: any = {};
+      if (phone && !customer.phone) updateData.phone = phone;
+      if (user?.id && !customer.userId) updateData.userId = user.id;
+
+      if (Object.keys(updateData).length > 0) {
+        await this.prisma.customer.update({
+          where: { id: customer.id },
+          data: updateData,
+        });
+      }
     }
 
     // 3. Find or create order
     let order;
+    const shippingAddressStr = `${shippingDetails.address}, ${shippingDetails.city}, C.P. ${shippingDetails.zip}`;
     if (orderId) {
       order = await this.prisma.order.findUnique({
         where: { id: orderId },
@@ -101,6 +84,43 @@ export class CheckoutService {
       if (order.status !== 'pending') {
         throw new BadRequestException(`Order with ID "${orderId}" is already in "${order.status}" status.`);
       }
+
+      // Update the existing order with the recalculated totals and shipping snapshot fields
+      order = await this.prisma.order.update({
+        where: { id: orderId },
+        data: {
+          customerName: shippingDetails.name,
+          customerEmail: email,
+          customerPhone: phone,
+          userId: user?.id || null,
+          guestEmail: user?.id ? null : email,
+          shippingAddress: shippingAddressStr,
+          shippingMethod: calculation.shippingMethod,
+          subtotal: calculation.subtotal,
+          shippingTotal: calculation.shippingCost,
+          total: calculation.total,
+          
+          // Shipping snapshot fields
+          shippingLabel: calculation.shippingLabel,
+          shippingCost: calculation.shippingCost,
+          isFreeShipping: calculation.isFreeShipping,
+          freeShippingThreshold: calculation.freeShippingThreshold,
+          amountRemainingForFreeShipping: calculation.amountRemainingForFreeShipping,
+          hasInStockItems: calculation.hasInStockItems,
+          hasMadeToOrderItems: calculation.hasMadeToOrderItems,
+          isMixedFulfillmentCart: calculation.isMixedFulfillmentCart,
+          splitShippingSelected: calculation.splitShippingSelected,
+          splitShippingCost: calculation.splitShippingCost,
+          estimatedDeliveryMinBusinessDays: calculation.estimatedDeliveryMinBusinessDays,
+          estimatedDeliveryMaxBusinessDays: calculation.estimatedDeliveryMaxBusinessDays,
+          firstPackageEstimatedMinBusinessDays: calculation.firstPackageEstimatedMinBusinessDays,
+          firstPackageEstimatedMaxBusinessDays: calculation.firstPackageEstimatedMaxBusinessDays,
+          secondPackageEstimatedMinBusinessDays: calculation.secondPackageEstimatedMinBusinessDays,
+          secondPackageEstimatedMaxBusinessDays: calculation.secondPackageEstimatedMaxBusinessDays,
+          fulfillmentNotes: calculation.fulfillmentNotes,
+          shippingNotes: calculation.shippingNotes,
+        },
+      });
     } else {
       const count = await this.prisma.order.count();
       const nextNum = String(count + 1).padStart(6, '0');
@@ -110,19 +130,41 @@ export class CheckoutService {
         data: {
           orderNumber,
           customerId: customer.id,
+          userId: user?.id || null,
+          guestEmail: user?.id ? null : email,
           customerName: shippingDetails.name,
           customerEmail: email,
           customerPhone: phone,
-          shippingAddress: `${shippingDetails.address}, ${shippingDetails.city}, C.P. ${shippingDetails.zip}`,
-          shippingMethod: shippingDetails.method,
-          subtotal,
-          shippingTotal: shippingCost,
-          total: computedTotal,
+          shippingAddress: shippingAddressStr,
+          shippingMethod: calculation.shippingMethod,
+          subtotal: calculation.subtotal,
+          shippingTotal: calculation.shippingCost,
+          total: calculation.total,
           currency: 'MXN',
           status: 'pending',
           items: {
-            create: itemsData,
+            create: calculation.items,
           },
+
+          // Shipping snapshot fields
+          shippingLabel: calculation.shippingLabel,
+          shippingCost: calculation.shippingCost,
+          isFreeShipping: calculation.isFreeShipping,
+          freeShippingThreshold: calculation.freeShippingThreshold,
+          amountRemainingForFreeShipping: calculation.amountRemainingForFreeShipping,
+          hasInStockItems: calculation.hasInStockItems,
+          hasMadeToOrderItems: calculation.hasMadeToOrderItems,
+          isMixedFulfillmentCart: calculation.isMixedFulfillmentCart,
+          splitShippingSelected: calculation.splitShippingSelected,
+          splitShippingCost: calculation.splitShippingCost,
+          estimatedDeliveryMinBusinessDays: calculation.estimatedDeliveryMinBusinessDays,
+          estimatedDeliveryMaxBusinessDays: calculation.estimatedDeliveryMaxBusinessDays,
+          firstPackageEstimatedMinBusinessDays: calculation.firstPackageEstimatedMinBusinessDays,
+          firstPackageEstimatedMaxBusinessDays: calculation.firstPackageEstimatedMaxBusinessDays,
+          secondPackageEstimatedMinBusinessDays: calculation.secondPackageEstimatedMinBusinessDays,
+          secondPackageEstimatedMaxBusinessDays: calculation.secondPackageEstimatedMaxBusinessDays,
+          fulfillmentNotes: calculation.fulfillmentNotes,
+          shippingNotes: calculation.shippingNotes,
         },
       });
     }
@@ -230,6 +272,12 @@ export class CheckoutService {
         where: { id: order.id },
         data: { status: localOrderStatus },
       });
+
+      if (localOrderStatus === 'paid') {
+        this.emailService.sendConfirmationEmail(order.id).catch((err) => {
+          console.error('[Email Send Error in processPayment]', err);
+        });
+      }
 
       const successLogData = {
         timestamp: new Date().toISOString(),
@@ -395,6 +443,12 @@ export class CheckoutService {
         console.log(`[MercadoPago Webhook] Order ${order.orderNumber} status updated to: ${localOrderStatus}`);
       } else {
         console.log(`[MercadoPago Webhook] Order ${order.orderNumber} status already matches: ${localOrderStatus}`);
+      }
+
+      if (localOrderStatus === 'paid') {
+        this.emailService.sendConfirmationEmail(order.id).catch((err) => {
+          console.error('[Email Send Error in handleWebhook]', err);
+        });
       }
 
       return { success: true };

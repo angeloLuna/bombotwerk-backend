@@ -23,20 +23,6 @@ export class UpdateSizeStockDto {
   @IsInt()
   @Min(0)
   quantity?: number;
-
-  @IsOptional()
-  @IsBoolean()
-  madeToOrderEnabled?: boolean;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  productionDaysMin?: number;
-
-  @IsOptional()
-  @IsInt()
-  @Min(1)
-  productionDaysMax?: number;
 }
 
 export class UpdateVariantDto {
@@ -48,6 +34,21 @@ export class UpdateVariantDto {
   @IsOptional()
   @IsString()
   color?: string;
+
+  @IsOptional()
+  @IsString()
+  @IsNotEmpty()
+  availabilityMode?: string;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  madeToOrderMinDays?: number;
+
+  @IsOptional()
+  @IsInt()
+  @Min(1)
+  madeToOrderMaxDays?: number;
 
   @IsOptional()
   @IsArray()
@@ -92,6 +93,15 @@ export class UpdateProductDto {
   @IsOptional()
   @IsBoolean()
   isNewArrival?: boolean;
+
+  @IsOptional()
+  @IsBoolean()
+  isFeatured?: boolean;
+
+  @IsOptional()
+  @IsNumber()
+  @IsPositive()
+  compareAtPrice?: number;
 
   @IsOptional()
   @IsArray()

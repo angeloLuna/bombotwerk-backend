@@ -11,14 +11,23 @@ export class CollectionsService {
     const formattedVariants = product.variants.map((v: any) => {
       const formattedStocks = v.stocks.map((s: any) => {
         let availability: 'ready-to-ship' | 'crafted-cdmx' | 'unavailable' = 'unavailable';
-        let availabilityText = 'Unavailable';
+        let availabilityText = 'Agotado';
 
-        if (s.quantity > 0) {
-          availability = 'ready-to-ship';
-          availabilityText = 'Ships within 24h';
-        } else if (s.quantity === 0 && v.madeToOrderEnabled) {
+        if (v.availabilityMode === 'discontinued') {
+          availability = 'unavailable';
+          availabilityText = 'Descontinuado';
+        } else if (v.availabilityMode === 'made_to_order_only') {
           availability = 'crafted-cdmx';
-          availabilityText = 'Crafted in CDMX — Ready in 5–7 days';
+          availabilityText = `Hecho bajo pedido · Entrega estimada ${v.madeToOrderMinDays ?? 7}–${v.madeToOrderMaxDays ?? 9} días`;
+        } else if (s.quantity > 0) {
+          availability = 'ready-to-ship';
+          availabilityText = 'Disponible';
+        } else if (s.quantity === 0 && v.availabilityMode === 'stock_and_made_to_order') {
+          availability = 'crafted-cdmx';
+          availabilityText = `Bajo pedido · Entrega estimada ${v.madeToOrderMinDays ?? 7}–${v.madeToOrderMaxDays ?? 9} días`;
+        } else {
+          availability = 'unavailable';
+          availabilityText = 'Agotado';
         }
 
         return {
@@ -34,14 +43,42 @@ export class CollectionsService {
         id: v.id,
         sku: v.sku,
         color: v.color,
-        madeToOrderEnabled: v.madeToOrderEnabled,
+        availabilityMode: v.availabilityMode,
+        madeToOrderMinDays: v.madeToOrderMinDays,
+        madeToOrderMaxDays: v.madeToOrderMaxDays,
         stocks: formattedStocks,
       };
     });
 
+    let hasReadyToShip = false;
+    let hasMadeToOrder = false;
+
+    for (const v of formattedVariants) {
+      for (const s of v.stocks) {
+        if (s.availability === 'ready-to-ship') {
+          hasReadyToShip = true;
+        } else if (s.availability === 'crafted-cdmx') {
+          hasMadeToOrder = true;
+        }
+      }
+    }
+
+    let productAvailability: 'ready-to-ship' | 'crafted-cdmx' | 'unavailable' = 'unavailable';
+    let availabilityText = 'Agotado';
+
+    if (hasReadyToShip) {
+      productAvailability = 'ready-to-ship';
+      availabilityText = 'Envío inmediato';
+    } else if (hasMadeToOrder) {
+      productAvailability = 'crafted-cdmx';
+      availabilityText = 'Bajo pedido';
+    }
+
     return {
       ...product,
       variants: formattedVariants,
+      availability: productAvailability,
+      availabilityText,
     };
   }
 
@@ -65,6 +102,13 @@ export class CollectionsService {
             },
             media: {
               orderBy: { sortOrder: 'asc' },
+            },
+            images: {
+              orderBy: [
+                { isCover: 'desc' },
+                { sortOrder: 'asc' },
+                { createdAt: 'asc' },
+              ],
             },
           },
         },

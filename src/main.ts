@@ -23,6 +23,7 @@ async function bootstrap() {
     }),
   );
 
+  // Start the NestJS application listening on the configured port.
   const port = process.env.PORT || 4000;
   await app.listen(port, '0.0.0.0');
   console.log(`Bombo Twerk Backend running on: http://localhost:${port}/api`);

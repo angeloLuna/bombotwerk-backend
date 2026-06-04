@@ -8,6 +8,8 @@ import { PaymentsModule } from './payments/payments.module';
 import { AdminModule } from './admin/admin.module';
 import { CheckoutModule } from './checkout/checkout.module';
 import { AuthModule } from './auth/auth.module';
+import { StorageModule } from './storage/storage.module';
+import { EmailModule } from './email/email.module';
 
 @Module({
   imports: [
@@ -20,6 +22,8 @@ import { AuthModule } from './auth/auth.module';
     AdminModule,
     CheckoutModule,
     AuthModule,
+    StorageModule,
+    EmailModule,
   ],
   controllers: [],
   providers: [],

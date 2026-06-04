@@ -2,11 +2,13 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateProductDto } from './dto/create-product.dto';
 import { UpdateProductDto } from './dto/update-product.dto';
 import { Prisma } from '@prisma/client';
+import { StorageService } from '../storage/storage.service';
 
 const PRODUCT_INCLUDE = {
   variants: {
@@ -17,6 +19,13 @@ const PRODUCT_INCLUDE = {
   media: {
     orderBy: { sortOrder: 'asc' as const },
   },
+  images: {
+    orderBy: [
+      { sortOrder: 'asc' as const },
+      { isCover: 'desc' as const },
+      { createdAt: 'asc' as const },
+    ],
+  },
   collection: {
     select: { id: true, name: true, slug: true },
   },
@@ -24,15 +33,33 @@ const PRODUCT_INCLUDE = {
 
 @Injectable()
 export class AdminProductsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly storage: StorageService,
+  ) {}
+
+  // ─── List ───────────────────────────────────────────────────────────────────
+
+  private formatProductImages(product: any) {
+    if (!product) return null;
+    const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    if (product.images) {
+      product.images = product.images.map((img: any) => ({
+        ...img,
+        url: (img.key && publicBaseUrl) ? `${publicBaseUrl}/${img.key}` : img.url,
+      }));
+    }
+    return product;
+  }
 
   // ─── List ───────────────────────────────────────────────────────────────────
 
   async findAll() {
-    return this.prisma.product.findMany({
+    const products = await this.prisma.product.findMany({
       include: PRODUCT_INCLUDE,
       orderBy: { createdAt: 'desc' },
     });
+    return products.map((p) => this.formatProductImages(p));
   }
 
   // ─── Single ─────────────────────────────────────────────────────────────────
@@ -43,7 +70,7 @@ export class AdminProductsService {
       include: PRODUCT_INCLUDE,
     });
     if (!product) throw new NotFoundException(`Product ${id} not found`);
-    return product;
+    return this.formatProductImages(product);
   }
 
   // ─── Create ─────────────────────────────────────────────────────────────────
@@ -67,6 +94,8 @@ export class AdminProductsService {
           category: dto.category,
           isActive: dto.isActive ?? true,
           isNewArrival: dto.isNewArrival ?? false,
+          isFeatured: dto.isFeatured ?? false,
+          compareAtPrice: dto.compareAtPrice ?? null,
           collectionId: dto.collectionId ?? null,
         },
       });
@@ -88,7 +117,9 @@ export class AdminProductsService {
           data: {
             sku: v.sku,
             color: v.color ?? null,
-            madeToOrderEnabled: v.stocks.some((s) => s.madeToOrderEnabled),
+            availabilityMode: v.availabilityMode ?? 'stock_only',
+            madeToOrderMinDays: v.madeToOrderMinDays ?? 7,
+            madeToOrderMaxDays: v.madeToOrderMaxDays ?? 9,
             productId: product.id,
           },
         });
@@ -102,10 +133,11 @@ export class AdminProductsService {
         });
       }
 
-      return tx.product.findUnique({
+      const res = await tx.product.findUnique({
         where: { id: product.id },
         include: PRODUCT_INCLUDE,
       });
+      return this.formatProductImages(res);
     });
   }
 
@@ -135,6 +167,8 @@ export class AdminProductsService {
           ...(dto.category !== undefined && { category: dto.category }),
           ...(dto.isActive !== undefined && { isActive: dto.isActive }),
           ...(dto.isNewArrival !== undefined && { isNewArrival: dto.isNewArrival }),
+          ...(dto.isFeatured !== undefined && { isFeatured: dto.isFeatured }),
+          ...(dto.compareAtPrice !== undefined && { compareAtPrice: dto.compareAtPrice || null }),
           ...(dto.collectionId !== undefined && { collectionId: dto.collectionId || null }),
         },
       });
@@ -169,9 +203,11 @@ export class AdminProductsService {
         for (const v of dto.variants) {
           const variant = await tx.productVariant.create({
             data: {
-              sku: v.sku,
+              sku: v.sku!,
               color: v.color ?? null,
-              madeToOrderEnabled: v.stocks?.some((s) => s.madeToOrderEnabled) ?? false,
+              availabilityMode: v.availabilityMode ?? 'stock_only',
+              madeToOrderMinDays: v.madeToOrderMinDays ?? 7,
+              madeToOrderMaxDays: v.madeToOrderMaxDays ?? 9,
               productId: id,
             },
           });
@@ -179,8 +215,8 @@ export class AdminProductsService {
           if (v.stocks && v.stocks.length > 0) {
             await tx.sizeStock.createMany({
               data: v.stocks.map((s) => ({
-                size: s.size,
-                quantity: s.quantity,
+                size: s.size!,
+                quantity: s.quantity ?? 0,
                 variantId: variant.id,
               })),
             });
@@ -188,10 +224,11 @@ export class AdminProductsService {
         }
       }
 
-      return tx.product.findUnique({
+      const res = await tx.product.findUnique({
         where: { id },
         include: PRODUCT_INCLUDE,
       });
+      return this.formatProductImages(res);
     });
   }
 
@@ -202,6 +239,346 @@ export class AdminProductsService {
     return this.prisma.product.update({
       where: { id },
       data: { isActive: false },
+    });
+  }
+
+  // ─── Image Management ────────────────────────────────────────────────────────
+
+  async uploadImage(
+    productId: string,
+    file: Express.Multer.File,
+    alt?: string,
+    type?: any,
+    isCover?: boolean,
+    sortOrder?: number,
+  ) {
+    // 1. Check if product exists
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with ID "${productId}" not found.`);
+    }
+
+    // 2. Validate file type
+    const allowedMimeTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedMimeTypes.includes(file.mimetype)) {
+      throw new BadRequestException('Formato de archivo no permitido. Solo se aceptan JPEG, PNG y WEBP.');
+    }
+
+    // 3. Validate file size (5MB)
+    const maxSizeBytes = 5 * 1024 * 1024;
+    if (file.size > maxSizeBytes) {
+      throw new BadRequestException('El archivo excede el tamaño máximo permitido de 5MB.');
+    }
+
+    // 4. Upload to R2
+    const uploadResult = await this.storage.uploadFile(file, productId);
+
+    // 5. Determine if it is the first image
+    const imageCount = await this.prisma.productImage.count({
+      where: { productId },
+    });
+    const shouldBeCover = isCover ?? (imageCount === 0);
+
+    // 6. If setting this to cover, unset all other images for this product
+    if (shouldBeCover) {
+      await this.prisma.productImage.updateMany({
+        where: { productId },
+        data: { isCover: false },
+      });
+    }
+
+    // 7. Save metadata in database
+    const newImage = await this.prisma.productImage.create({
+      data: {
+        productId,
+        url: uploadResult.publicUrl,
+        key: uploadResult.key,
+        alt: alt || null,
+        type: type || 'catalog',
+        sortOrder: sortOrder !== undefined ? Number(sortOrder) : 0,
+        isCover: shouldBeCover,
+      },
+    });
+
+    const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    return {
+      ...newImage,
+      url: (newImage.key && publicBaseUrl) ? `${publicBaseUrl}/${newImage.key}` : newImage.url,
+    };
+  }
+
+  async addImageUrl(
+    productId: string,
+    dto: { url: string; alt?: string; type?: string; isCover?: boolean; sortOrder?: number },
+  ) {
+    // Check if product exists
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with ID "${productId}" not found.`);
+    }
+
+    if (!dto.url) {
+      throw new BadRequestException('La URL de la imagen es requerida.');
+    }
+
+    // Determine if it is the first image
+    const imageCount = await this.prisma.productImage.count({
+      where: { productId },
+    });
+    const shouldBeCover = dto.isCover ?? (imageCount === 0);
+
+    // If setting this to cover, unset all other images for this product
+    if (shouldBeCover) {
+      await this.prisma.productImage.updateMany({
+        where: { productId },
+        data: { isCover: false },
+      });
+    }
+
+    const newImage = await this.prisma.productImage.create({
+      data: {
+        productId,
+        url: dto.url,
+        key: null,
+        alt: dto.alt || null,
+        type: (dto.type as any) || 'catalog',
+        sortOrder: dto.sortOrder !== undefined ? Number(dto.sortOrder) : 0,
+        isCover: shouldBeCover,
+      },
+    });
+
+    return newImage;
+  }
+
+  async updateImage(
+    productId: string,
+    imageId: string,
+    dto: { alt?: string; type?: string; sortOrder?: number; isCover?: boolean },
+  ) {
+    // Verify product exists
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with ID "${productId}" not found.`);
+    }
+
+    // Verify image exists and belongs to this product
+    const image = await this.prisma.productImage.findFirst({
+      where: { id: imageId, productId },
+    });
+    if (!image) {
+      throw new NotFoundException(`Image with ID "${imageId}" not found for product "${productId}".`);
+    }
+
+    // If setting to cover, unset all other images for this product
+    if (dto.isCover === true) {
+      await this.prisma.productImage.updateMany({
+        where: { productId, id: { not: imageId } },
+        data: { isCover: false },
+      });
+    }
+
+    const updated = await this.prisma.productImage.update({
+      where: { id: imageId },
+      data: {
+        ...(dto.alt !== undefined && { alt: dto.alt }),
+        ...(dto.type !== undefined && { type: dto.type as any }),
+        ...(dto.sortOrder !== undefined && { sortOrder: Number(dto.sortOrder) }),
+        ...(dto.isCover !== undefined && { isCover: dto.isCover }),
+      },
+    });
+
+    const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+    return {
+      ...updated,
+      url: updated.key && publicBaseUrl ? `${publicBaseUrl}/${updated.key}` : updated.url,
+    };
+  }
+
+  async reorderImages(productId: string, ids: string[]) {
+    // Verify product exists
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with ID "${productId}" not found.`);
+    }
+
+    // Update each image's sortOrder in transaction
+    await this.prisma.$transaction(
+      ids.map((id, index) =>
+        this.prisma.productImage.update({
+          where: { id, productId },
+          data: { sortOrder: index },
+        }),
+      ),
+    );
+
+    return { success: true };
+  }
+
+  async deleteImage(productId: string, imageId: string) {
+    // Verify image exists
+    const image = await this.prisma.productImage.findFirst({
+      where: { id: imageId, productId },
+    });
+    if (!image) {
+      throw new NotFoundException(`Image with ID "${imageId}" not found for product "${productId}".`);
+    }
+
+    // Delete from R2 if key exists
+    if (image.key) {
+      try {
+        await this.storage.deleteFile(image.key);
+      } catch (err) {
+        console.error(`Failed to delete key ${image.key} from R2:`, err);
+      }
+    }
+
+    // Delete DB record
+    await this.prisma.productImage.delete({
+      where: { id: imageId },
+    });
+
+    // If deleted image was cover, promote another image if available
+    if (image.isCover) {
+      const nextImage = await this.prisma.productImage.findFirst({
+        where: { productId },
+        orderBy: [
+          { sortOrder: 'asc' },
+          { createdAt: 'asc' },
+        ],
+      });
+      if (nextImage) {
+        await this.prisma.productImage.update({
+          where: { id: nextImage.id },
+          data: { isCover: true },
+        });
+      }
+    }
+
+    return { success: true };
+  }
+
+  async uploadRawImage(productId: string, file: Express.Multer.File) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with ID "${productId}" not found.`);
+    }
+
+    if (!file) {
+      throw new BadRequestException('El archivo de imagen es requerido.');
+    }
+
+    const uploadResult = await this.storage.uploadFile(file, `products/${productId}`);
+    return {
+      url: uploadResult.publicUrl,
+      key: uploadResult.key,
+    };
+  }
+
+  async updateImagesBulk(
+    productId: string,
+    dto: { images: any[]; deletedImageIds: string[] },
+  ) {
+    const product = await this.prisma.product.findUnique({
+      where: { id: productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product with ID "${productId}" not found.`);
+    }
+
+    const { images, deletedImageIds } = dto;
+
+    return await this.prisma.$transaction(async (tx) => {
+      // 1. Delete requested images
+      if (deletedImageIds && deletedImageIds.length > 0) {
+        const toDelete = await tx.productImage.findMany({
+          where: { id: { in: deletedImageIds }, productId },
+        });
+        
+        for (const img of toDelete) {
+          if (img.key) {
+            try {
+              await this.storage.deleteFile(img.key);
+            } catch (err) {
+              console.error(`Failed to delete key ${img.key} from R2:`, err);
+            }
+          }
+        }
+
+        await tx.productImage.deleteMany({
+          where: { id: { in: deletedImageIds }, productId },
+        });
+      }
+
+      // 2. Resolve cover exclusivity
+      let coverIndex = -1;
+      for (let i = 0; i < images.length; i++) {
+        if (images[i].isCover) {
+          coverIndex = i;
+          break;
+        }
+      }
+
+      await tx.productImage.updateMany({
+        where: { productId },
+        data: { isCover: false },
+      });
+
+      // 3. Insert and update
+      for (let i = 0; i < images.length; i++) {
+        const img = images[i];
+        const isThisCover = coverIndex === i;
+
+        if (img.id) {
+          await tx.productImage.update({
+            where: { id: img.id },
+            data: {
+              alt: img.alt || null,
+              type: img.type || 'catalog',
+              view: img.view || 'not_applicable',
+              sortOrder: img.sortOrder ?? i,
+              isCover: isThisCover,
+            },
+          });
+        } else {
+          await tx.productImage.create({
+            data: {
+              productId,
+              url: img.url,
+              key: img.key || null,
+              alt: img.alt || null,
+              type: img.type || 'catalog',
+              view: img.view || 'not_applicable',
+              sortOrder: img.sortOrder ?? i,
+              isCover: isThisCover,
+            },
+          });
+        }
+      }
+
+      // 4. Return updated images
+      const updatedImages = await tx.productImage.findMany({
+        where: { productId },
+        orderBy: [
+          { sortOrder: 'asc' },
+          { createdAt: 'asc' },
+        ],
+      });
+
+      const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+      return updatedImages.map((img) => ({
+        ...img,
+        url: img.key && publicBaseUrl ? `${publicBaseUrl}/${img.key}` : img.url,
+      }));
     });
   }
 }

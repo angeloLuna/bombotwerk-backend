@@ -20,4 +20,12 @@ export class UpdateCollectionDto {
   @IsOptional()
   @IsString()
   bgImage?: string;
+
+  @IsOptional()
+  @IsString()
+  coverImageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  heroImageUrl?: string;
 }

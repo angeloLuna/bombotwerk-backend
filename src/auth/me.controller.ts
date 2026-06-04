@@ -1,13 +1,65 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import {
+  Controller,
+  Get,
+  Param,
+  Req,
+  UseGuards,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
-@Injectable()
-export class OrdersService {
-  constructor(private prisma: PrismaService) {}
+@Controller('me')
+@UseGuards(JwtAuthGuard)
+export class MeController {
+  constructor(private readonly prisma: PrismaService) {}
 
-  async findOne(id: string) {
+  @Get()
+  async getProfile(@Req() req: any) {
+    const user = await this.prisma.user.findUnique({
+      where: { id: req.user.id },
+    });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      image: user.image,
+      provider: user.provider,
+      role: user.role,
+      createdAt: user.createdAt,
+    };
+  }
+
+  @Get('orders')
+  async getMyOrders(@Req() req: any) {
+    const orders = await this.prisma.order.findMany({
+      where: { userId: req.user.id },
+      orderBy: { createdAt: 'desc' },
+      include: {
+        payment: true,
+      },
+    });
+
+    return orders.map((order) => ({
+      id: order.id,
+      orderNumber: order.orderNumber,
+      createdAt: order.createdAt,
+      status: order.status,
+      total: Number(order.total),
+      subtotal: Number(order.subtotal),
+      shippingTotal: Number(order.shippingTotal),
+      paymentStatus: order.payment?.status || 'pending',
+    }));
+  }
+
+  @Get('orders/:orderNumber')
+  async getMyOrderDetail(@Param('orderNumber') orderNumber: string, @Req() req: any) {
     const order = await this.prisma.order.findUnique({
-      where: { id },
+      where: { orderNumber },
       include: {
         items: true,
         payment: true,
@@ -15,7 +67,12 @@ export class OrdersService {
     });
 
     if (!order) {
-      throw new NotFoundException(`Order with ID "${id}" not found.`);
+      throw new NotFoundException(`Pedido ${orderNumber} no encontrado.`);
+    }
+
+    // Validation: Admin can see any order, normal customer can only see their own
+    if (req.user.role !== 'admin' && order.userId !== req.user.id) {
+      throw new ForbiddenException('No tienes permiso para ver esta orden.');
     }
 
     return {
@@ -33,6 +90,7 @@ export class OrdersService {
       total: Number(order.total),
       currency: order.currency,
       createdAt: order.createdAt,
+      updatedAt: order.updatedAt,
 
       // Shipping snapshot fields
       shippingLabel: order.shippingLabel,
@@ -53,6 +111,7 @@ export class OrdersService {
       secondPackageEstimatedMaxBusinessDays: order.secondPackageEstimatedMaxBusinessDays,
       fulfillmentNotes: order.fulfillmentNotes,
       shippingNotes: order.shippingNotes,
+
       items: order.items.map((item) => ({
         id: item.id,
         productId: item.productId,

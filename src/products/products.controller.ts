@@ -12,6 +12,8 @@ export class ProductsController {
     @Query('availability') availability?: string,
     @Query('sort') sort?: string,
     @Query('search') search?: string,
+    @Query('featured') featured?: string,
+    @Query('sale') sale?: string,
   ) {
     return this.productsService.findAllActive({
       category,
@@ -19,11 +21,18 @@ export class ProductsController {
       availability,
       sort,
       search,
+      isFeatured: featured === 'true' ? true : undefined,
+      sale: sale === 'true' ? true : undefined,
     });
   }
 
   @Get(':slug')
   async getProductBySlug(@Param('slug') slug: string) {
     return this.productsService.findBySlug(slug);
+  }
+
+  @Get(':productId/images')
+  async getProductImages(@Param('productId') productId: string) {
+    return this.productsService.findImagesByProductId(productId);
   }
 }

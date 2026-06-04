@@ -17,7 +17,7 @@ export class AuthService {
       .filter(Boolean);
   }
 
-  async googleLogin(payload: { email: string; name?: string; image?: string }) {
+  async googleLogin(payload: { email: string; name?: string; image?: string; provider?: string }) {
     const normalizedEmail = payload.email.trim().toLowerCase();
     
     // Check if the user should be an admin
@@ -30,12 +30,14 @@ export class AuthService {
       update: {
         name: payload.name,
         image: payload.image,
+        provider: payload.provider || 'google',
         role: role, // Keep role up-to-date in case ADMIN_EMAILS env variable changes
       },
       create: {
         email: normalizedEmail,
         name: payload.name,
         image: payload.image,
+        provider: payload.provider || 'google',
         role: role,
       },
     });

@@ -1,9 +1,10 @@
-import { Controller, Get, Post, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Patch, Param, Body, UseGuards, UseInterceptors, UploadedFile } from '@nestjs/common';
 import { AdminCollectionsService } from './admin-collections.service';
 import { CreateCollectionDto } from './dto/create-collection.dto';
 import { UpdateCollectionDto } from './dto/update-collection.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AdminGuard } from '../auth/guards/admin.guard';
+import { FileInterceptor } from '@nestjs/platform-express';
 
 @Controller('admin/collections')
 @UseGuards(JwtAuthGuard, AdminGuard)
@@ -19,6 +20,12 @@ export class AdminCollectionsController {
   @Post()
   create(@Body() dto: CreateCollectionDto) {
     return this.service.create(dto);
+  }
+
+  @Post('upload')
+  @UseInterceptors(FileInterceptor('file'))
+  uploadImage(@UploadedFile() file: Express.Multer.File) {
+    return this.service.uploadImage(file);
   }
 
   @Patch(':id')

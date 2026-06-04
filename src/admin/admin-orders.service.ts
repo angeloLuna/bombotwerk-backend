@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { EmailService } from '../email/email.service';
 
 @Injectable()
 export class AdminOrdersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly emailService: EmailService
+  ) {}
 
   async findAll(filters: {
     status?: string;
@@ -66,6 +70,9 @@ export class AdminOrdersService {
       currency: order.currency,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
+      confirmationEmailSentAt: order.confirmationEmailSentAt,
+      confirmationEmailStatus: order.confirmationEmailStatus,
+      confirmationEmailError: order.confirmationEmailError,
       payment: order.payment ? {
         id: order.payment.id,
         provider: order.payment.provider,
@@ -91,6 +98,9 @@ export class AdminOrdersService {
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
         total: Number(item.total),
+        fulfillmentType: item.fulfillmentType,
+        madeToOrderMinDays: item.madeToOrderMinDays,
+        madeToOrderMaxDays: item.madeToOrderMaxDays,
       })),
     }));
   }
@@ -124,6 +134,29 @@ export class AdminOrdersService {
       currency: order.currency,
       createdAt: order.createdAt,
       updatedAt: order.updatedAt,
+      confirmationEmailSentAt: order.confirmationEmailSentAt,
+      confirmationEmailStatus: order.confirmationEmailStatus,
+      confirmationEmailError: order.confirmationEmailError,
+
+      // Shipping snapshot fields
+      shippingLabel: order.shippingLabel,
+      shippingCost: Number(order.shippingCost),
+      isFreeShipping: order.isFreeShipping,
+      freeShippingThreshold: Number(order.freeShippingThreshold),
+      amountRemainingForFreeShipping: Number(order.amountRemainingForFreeShipping),
+      hasInStockItems: order.hasInStockItems,
+      hasMadeToOrderItems: order.hasMadeToOrderItems,
+      isMixedFulfillmentCart: order.isMixedFulfillmentCart,
+      splitShippingSelected: order.splitShippingSelected,
+      splitShippingCost: Number(order.splitShippingCost),
+      estimatedDeliveryMinBusinessDays: order.estimatedDeliveryMinBusinessDays,
+      estimatedDeliveryMaxBusinessDays: order.estimatedDeliveryMaxBusinessDays,
+      firstPackageEstimatedMinBusinessDays: order.firstPackageEstimatedMinBusinessDays,
+      firstPackageEstimatedMaxBusinessDays: order.firstPackageEstimatedMaxBusinessDays,
+      secondPackageEstimatedMinBusinessDays: order.secondPackageEstimatedMinBusinessDays,
+      secondPackageEstimatedMaxBusinessDays: order.secondPackageEstimatedMaxBusinessDays,
+      fulfillmentNotes: order.fulfillmentNotes,
+      shippingNotes: order.shippingNotes,
       payment: order.payment ? {
         id: order.payment.id,
         provider: order.payment.provider,
@@ -149,7 +182,36 @@ export class AdminOrdersService {
         quantity: item.quantity,
         unitPrice: Number(item.unitPrice),
         total: Number(item.total),
+        fulfillmentType: item.fulfillmentType,
+        madeToOrderMinDays: item.madeToOrderMinDays,
+        madeToOrderMaxDays: item.madeToOrderMaxDays,
       })),
+    };
+  }
+
+  async resendEmail(id: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+    });
+    if (!order) {
+      throw new NotFoundException(`Order with ID "${id}" not found.`);
+    }
+
+    // Trigger confirmation email forcing resend
+    await this.emailService.sendConfirmationEmail(order.id, true);
+
+    const updated = await this.prisma.order.findUnique({
+      where: { id },
+    });
+    if (!updated) {
+      throw new NotFoundException(`Order with ID "${id}" was deleted during resend.`);
+    }
+
+    return {
+      success: updated.confirmationEmailStatus === 'sent',
+      confirmationEmailStatus: updated.confirmationEmailStatus,
+      confirmationEmailSentAt: updated.confirmationEmailSentAt,
+      confirmationEmailError: updated.confirmationEmailError,
     };
   }
 }

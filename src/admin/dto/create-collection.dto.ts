@@ -20,4 +20,12 @@ export class CreateCollectionDto {
   @IsOptional()
   @IsString()
   bgImage?: string;
+
+  @IsOptional()
+  @IsString()
+  coverImageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  heroImageUrl?: string;
 }
