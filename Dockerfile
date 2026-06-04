@@ -1,6 +1,9 @@
 # Phase 1: Build
 FROM node:20-alpine AS builder
 
+# Install OpenSSL for Prisma
+RUN apk add --no-cache openssl
+
 WORKDIR /app
 
 # Copy package configurations and prisma schema first for better caching
@@ -21,6 +24,9 @@ RUN npm run build
 
 # Phase 2: Runtime (Production)
 FROM node:20-alpine AS runner
+
+# Install OpenSSL for Prisma runtime
+RUN apk add --no-cache openssl
 
 WORKDIR /app
 
