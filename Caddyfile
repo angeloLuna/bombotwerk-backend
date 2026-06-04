@@ -1,0 +1,3 @@
+api.bombotwerk.com {
+    reverse_proxy backend:4000
+}
