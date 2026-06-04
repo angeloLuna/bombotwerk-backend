@@ -50,8 +50,8 @@ prisma/dev.db-journal
 *.sqlite3
 
 # Uploads / generated files
-uploads/
-storage/
+/uploads/
+/storage/
 public/uploads/
 
 # OS files
