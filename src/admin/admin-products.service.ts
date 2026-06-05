@@ -14,6 +14,9 @@ const PRODUCT_INCLUDE = {
   variants: {
     include: {
       stocks: true,
+      images: {
+        orderBy: { sortOrder: 'asc' as const },
+      },
     },
   },
   media: {
@@ -48,6 +51,17 @@ export class AdminProductsService {
         ...img,
         url: (img.key && publicBaseUrl) ? `${publicBaseUrl}/${img.key}` : img.url,
       }));
+    }
+    if (product.variants) {
+      product.variants = product.variants.map((v: any) => {
+        if (v.images) {
+          v.images = v.images.map((img: any) => ({
+            ...img,
+            url: (img.key && publicBaseUrl) ? `${publicBaseUrl}/${img.key}` : img.url,
+          }));
+        }
+        return v;
+      });
     }
     return product;
   }
@@ -117,6 +131,7 @@ export class AdminProductsService {
           data: {
             sku: v.sku,
             color: v.color ?? null,
+            colorHex: v.colorHex ?? null,
             availabilityMode: v.availabilityMode ?? 'stock_only',
             madeToOrderMinDays: v.madeToOrderMinDays ?? 7,
             madeToOrderMaxDays: v.madeToOrderMaxDays ?? 9,
@@ -131,6 +146,18 @@ export class AdminProductsService {
             variantId: variant.id,
           })),
         });
+
+        if (v.images && v.images.length > 0) {
+          await tx.variantImage.createMany({
+            data: v.images.map((img: any, idx: number) => ({
+              url: img.url,
+              key: img.key ?? null,
+              altText: img.alt || img.altText || null,
+              sortOrder: img.sortOrder ?? idx,
+              variantId: variant.id,
+            })),
+          });
+        }
       }
 
       const res = await tx.product.findUnique({
@@ -189,15 +216,53 @@ export class AdminProductsService {
 
       // 3. Replace variants + stocks if provided
       if (dto.variants !== undefined) {
-        // Delete old stocks + variants
+        // Find old variants
         const oldVariants = await tx.productVariant.findMany({
           where: { productId: id },
           select: { id: true },
         });
+        const oldVariantIds = oldVariants.map((v) => v.id);
+
+        // Delete old stocks
         await tx.sizeStock.deleteMany({
-          where: { variantId: { in: oldVariants.map((v) => v.id) } },
+          where: { variantId: { in: oldVariantIds } },
         });
+
+        // Track variant images being deleted
+        const oldVariantImages = await tx.variantImage.findMany({
+          where: { variantId: { in: oldVariantIds } },
+          select: { key: true },
+        });
+
+        // Find new keys being saved
+        const newKeys = new Set<string>();
+        for (const v of dto.variants) {
+          if (v.images) {
+            for (const img of v.images) {
+              if (img.key) newKeys.add(img.key);
+            }
+          }
+        }
+
+        // Delete old variant images from database
+        await tx.variantImage.deleteMany({
+          where: { variantId: { in: oldVariantIds } },
+        });
+
+        // Delete old variants
         await tx.productVariant.deleteMany({ where: { productId: id } });
+
+        // Clean up R2 orphaned images
+        const keysToDelete = oldVariantImages
+          .map((img) => img.key)
+          .filter((key): key is string => !!key && !newKeys.has(key));
+        for (const key of keysToDelete) {
+          try {
+            await this.storage.deleteFile(key);
+          } catch (err) {
+            console.error(`Failed to delete key ${key} from R2:`, err);
+          }
+        }
 
         // Create new
         for (const v of dto.variants) {
@@ -205,6 +270,7 @@ export class AdminProductsService {
             data: {
               sku: v.sku!,
               color: v.color ?? null,
+              colorHex: v.colorHex ?? null,
               availabilityMode: v.availabilityMode ?? 'stock_only',
               madeToOrderMinDays: v.madeToOrderMinDays ?? 7,
               madeToOrderMaxDays: v.madeToOrderMaxDays ?? 9,
@@ -217,6 +283,18 @@ export class AdminProductsService {
               data: v.stocks.map((s) => ({
                 size: s.size!,
                 quantity: s.quantity ?? 0,
+                variantId: variant.id,
+              })),
+            });
+          }
+
+          if (v.images && v.images.length > 0) {
+            await tx.variantImage.createMany({
+              data: v.images.map((img: any, idx: number) => ({
+                url: img.url,
+                key: img.key ?? null,
+                altText: img.alt || img.altText || null,
+                sortOrder: img.sortOrder ?? idx,
                 variantId: variant.id,
               })),
             });

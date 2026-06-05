@@ -10,6 +10,15 @@ export class ProductsService {
     if (!product) return null;
 
     const formattedVariants = product.variants.map((v: any) => {
+      let formattedImages = [];
+      const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
+      if (v.images) {
+        formattedImages = v.images.map((img: any) => ({
+          ...img,
+          url: (img.key && publicBaseUrl) ? `${publicBaseUrl}/${img.key}` : img.url,
+        }));
+      }
+
       const formattedStocks = v.stocks.map((s: any) => {
         let availability: 'ready-to-ship' | 'crafted-cdmx' | 'unavailable' = 'unavailable';
         let availabilityText = 'Agotado';
@@ -44,10 +53,12 @@ export class ProductsService {
         id: v.id,
         sku: v.sku,
         color: v.color,
+        colorHex: v.colorHex,
         availabilityMode: v.availabilityMode,
         madeToOrderMinDays: v.madeToOrderMinDays,
         madeToOrderMaxDays: v.madeToOrderMaxDays,
         stocks: formattedStocks,
+        images: formattedImages,
       };
     });
 
@@ -137,6 +148,9 @@ export class ProductsService {
         variants: {
           include: {
             stocks: true,
+            images: {
+              orderBy: { sortOrder: 'asc' },
+            },
           },
         },
         media: {
@@ -194,6 +208,9 @@ export class ProductsService {
         variants: {
           include: {
             stocks: true,
+            images: {
+              orderBy: { sortOrder: 'asc' },
+            },
           },
         },
         media: {

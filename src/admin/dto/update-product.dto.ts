@@ -37,6 +37,10 @@ export class UpdateVariantDto {
 
   @IsOptional()
   @IsString()
+  colorHex?: string;
+
+  @IsOptional()
+  @IsString()
   @IsNotEmpty()
   availabilityMode?: string;
 
@@ -56,6 +60,10 @@ export class UpdateVariantDto {
   @ValidateNested({ each: true })
   @Type(() => UpdateSizeStockDto)
   stocks?: UpdateSizeStockDto[];
+
+  @IsOptional()
+  @IsArray()
+  images?: any[];
 }
 
 export class UpdateProductDto {

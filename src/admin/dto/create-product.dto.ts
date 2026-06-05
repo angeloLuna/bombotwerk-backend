@@ -32,6 +32,10 @@ export class CreateVariantDto {
   @IsString()
   color?: string;
 
+  @IsOptional()
+  @IsString()
+  colorHex?: string;
+
   @IsString()
   @IsNotEmpty()
   availabilityMode: string;
@@ -51,6 +55,10 @@ export class CreateVariantDto {
   @ValidateNested({ each: true })
   @Type(() => CreateSizeStockDto)
   stocks: CreateSizeStockDto[];
+
+  @IsOptional()
+  @IsArray()
+  images?: any[];
 }
 
 export class CreateProductDto {
