@@ -54,58 +54,86 @@ export class CheckoutPricingService {
       });
       const stockQty = sizeStock ? sizeStock.quantity : 0;
 
-      let fulfillmentType = 'stock';
+      let stockUnits = 0;
+      let mtoUnits = 0;
 
       if (variant.availabilityMode === 'discontinued') {
-        throw new BadRequestException(
-          `El producto "${product.name}" (${variant.color || 'Estándar'} - Talla ${item.size}) está descontinuado y no se puede comprar.`
-        );
-      } else if (variant.availabilityMode === 'made_to_order_only') {
-        fulfillmentType = 'made_to_order';
-      } else if (variant.availabilityMode === 'stock_and_made_to_order') {
-        if (stockQty >= item.quantity) {
-          fulfillmentType = 'stock';
-        } else {
-          fulfillmentType = 'made_to_order';
+        if (stockQty <= 0) {
+          throw new BadRequestException(
+            `El producto "${product.name}" (${variant.color || 'Estándar'} - Talla ${item.size}) está descontinuado y agotado.`
+          );
         }
+        if (item.quantity > stockQty) {
+          throw new BadRequestException(
+            `El producto "${product.name}" (${variant.color || 'Estándar'} - Talla ${item.size}) está descontinuado. Solo quedan ${stockQty} unidades en existencia.`
+          );
+        }
+        stockUnits = item.quantity;
       } else if (variant.availabilityMode === 'stock_only') {
         if (stockQty < item.quantity) {
           throw new BadRequestException(
             `Stock insuficiente para el producto "${product.name}" (${variant.color || 'Estándar'} - Talla ${item.size}). Disponible: ${stockQty}.`
           );
         }
-        fulfillmentType = 'stock';
+        stockUnits = item.quantity;
+      } else if (variant.availabilityMode === 'made_to_order_only') {
+        mtoUnits = item.quantity;
+      } else if (variant.availabilityMode === 'stock_and_made_to_order') {
+        if (stockQty >= item.quantity) {
+          stockUnits = item.quantity;
+        } else {
+          stockUnits = Math.max(0, stockQty);
+          mtoUnits = item.quantity - stockUnits;
+        }
       } else {
+        // Fallback to stock_only behavior
         if (stockQty < item.quantity) {
           throw new BadRequestException(
             `Stock insuficiente para el producto "${product.name}" (${variant.color || 'Estándar'} - Talla ${item.size}).`
           );
         }
-        fulfillmentType = 'stock';
-      }
-
-      if (fulfillmentType === 'made_to_order') {
-        hasMadeToOrderItems = true;
-      } else {
-        hasInStockItems = true;
+        stockUnits = item.quantity;
       }
 
       const itemPrice = Number(product.price);
-      subtotal += itemPrice * item.quantity;
 
-      validatedItems.push({
-        productId: item.productId,
-        variantId: item.variantId,
-        size: item.size,
-        quantity: item.quantity,
-        unitPrice: product.price,
-        total: itemPrice * item.quantity,
-        fulfillmentType,
-        productName: product.name,
-        variantName: `${variant.color || 'Standard'} / ${item.size}`,
-        madeToOrderMinDays: fulfillmentType === 'made_to_order' ? variant.madeToOrderMinDays : null,
-        madeToOrderMaxDays: fulfillmentType === 'made_to_order' ? variant.madeToOrderMaxDays : null,
-      });
+      // Add stock item part if any
+      if (stockUnits > 0) {
+        hasInStockItems = true;
+        subtotal += itemPrice * stockUnits;
+        validatedItems.push({
+          productId: item.productId,
+          variantId: item.variantId,
+          size: item.size,
+          quantity: stockUnits,
+          unitPrice: product.price,
+          total: itemPrice * stockUnits,
+          fulfillmentType: 'stock',
+          productName: product.name,
+          variantName: `${variant.color || 'Standard'} / ${item.size}`,
+          madeToOrderMinDays: null,
+          madeToOrderMaxDays: null,
+        });
+      }
+
+      // Add made-to-order item part if any
+      if (mtoUnits > 0) {
+        hasMadeToOrderItems = true;
+        subtotal += itemPrice * mtoUnits;
+        validatedItems.push({
+          productId: item.productId,
+          variantId: item.variantId,
+          size: item.size,
+          quantity: mtoUnits,
+          unitPrice: product.price,
+          total: itemPrice * mtoUnits,
+          fulfillmentType: 'made_to_order',
+          productName: product.name,
+          variantName: `${variant.color || 'Standard'} / ${item.size}`,
+          madeToOrderMinDays: variant.madeToOrderMinDays ?? 7,
+          madeToOrderMaxDays: variant.madeToOrderMaxDays ?? 9,
+        });
+      }
     }
 
     const isMixedFulfillmentCart = hasInStockItems && hasMadeToOrderItems;

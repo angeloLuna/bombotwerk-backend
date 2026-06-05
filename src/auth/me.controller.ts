@@ -36,13 +36,33 @@ export class MeController {
 
   @Get('orders')
   async getMyOrders(@Req() req: any) {
+    const email = req.user.email ? req.user.email.trim().toLowerCase() : null;
+
+    console.log('[DEBUG getMyOrders] Authenticated user email:', email);
+    console.log('[DEBUG getMyOrders] Authenticated user ID:', req.user.id);
+
     const orders = await this.prisma.order.findMany({
-      where: { userId: req.user.id },
+      where: {
+        OR: [
+          { userId: req.user.id },
+          ...(email ? [{ customerEmail: email }] : []),
+          {
+            customer: {
+              OR: [
+                { userId: req.user.id },
+                ...(email ? [{ email: email }] : []),
+              ],
+            },
+          },
+        ],
+      },
       orderBy: { createdAt: 'desc' },
       include: {
         payment: true,
       },
     });
+
+    console.log(`[DEBUG getMyOrders] Found ${orders.length} orders for user.`);
 
     return orders.map((order) => ({
       id: order.id,
@@ -63,6 +83,7 @@ export class MeController {
       include: {
         items: true,
         payment: true,
+        customer: true,
       },
     });
 
@@ -70,8 +91,31 @@ export class MeController {
       throw new NotFoundException(`Pedido ${orderNumber} no encontrado.`);
     }
 
-    // Validation: Admin can see any order, normal customer can only see their own
-    if (req.user.role !== 'admin' && order.userId !== req.user.id) {
+    const email = req.user.email ? req.user.email.trim().toLowerCase() : null;
+
+    console.log('[DEBUG getMyOrderDetail] Authenticated user email:', email);
+    console.log('[DEBUG getMyOrderDetail] Authenticated user ID:', req.user.id);
+    console.log('[DEBUG getMyOrderDetail] Order number:', orderNumber);
+    console.log('[DEBUG getMyOrderDetail] Order userId:', order.userId);
+    console.log('[DEBUG getMyOrderDetail] Order customerEmail:', order.customerEmail);
+
+    // Validation: Admin can see any order, normal customer can only see their own based on 4 criteria
+    let hasPermission = false;
+    if (req.user.role === 'admin') {
+      hasPermission = true;
+    } else {
+      if (order.userId === req.user.id) {
+        hasPermission = true;
+      } else if (email && order.customerEmail.trim().toLowerCase() === email) {
+        hasPermission = true;
+      } else if (order.customer && order.customer.userId === req.user.id) {
+        hasPermission = true;
+      } else if (email && order.customer && order.customer.email.trim().toLowerCase() === email) {
+        hasPermission = true;
+      }
+    }
+
+    if (!hasPermission) {
       throw new ForbiddenException('No tienes permiso para ver esta orden.');
     }
 

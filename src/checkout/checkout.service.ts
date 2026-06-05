@@ -49,6 +49,26 @@ export class CheckoutService {
     }
 
     // 2. Find or create customer (optional historical tracking)
+    let verifiedUserId: string | null = null;
+    if (user?.id) {
+      const dbUser = await this.prisma.user.findUnique({
+        where: { id: user.id },
+      });
+      if (dbUser) {
+        verifiedUserId = dbUser.id;
+      } else {
+        const userEmail = user.email || email;
+        if (userEmail) {
+          const dbUserByEmail = await this.prisma.user.findUnique({
+            where: { email: userEmail.trim().toLowerCase() },
+          });
+          if (dbUserByEmail) {
+            verifiedUserId = dbUserByEmail.id;
+          }
+        }
+      }
+    }
+
     let customer = await this.prisma.customer.findUnique({
       where: { email },
     });
@@ -58,13 +78,13 @@ export class CheckoutService {
           email,
           name: shippingDetails.name,
           phone,
-          userId: user?.id || null,
+          userId: verifiedUserId,
         },
       });
     } else {
       const updateData: any = {};
       if (phone && !customer.phone) updateData.phone = phone;
-      if (user?.id && !customer.userId) updateData.userId = user.id;
+      if (verifiedUserId && !customer.userId) updateData.userId = verifiedUserId;
 
       if (Object.keys(updateData).length > 0) {
         await this.prisma.customer.update({
@@ -95,8 +115,8 @@ export class CheckoutService {
           customerName: shippingDetails.name,
           customerEmail: email,
           customerPhone: phone,
-          userId: user?.id || null,
-          guestEmail: user?.id ? null : email,
+          userId: verifiedUserId,
+          guestEmail: verifiedUserId ? null : email,
           shippingAddress: shippingAddressStr,
           shippingMethod: calculation.shippingMethod,
           subtotal: calculation.subtotal,
@@ -133,8 +153,8 @@ export class CheckoutService {
         data: {
           orderNumber,
           customerId: customer.id,
-          userId: user?.id || null,
-          guestEmail: user?.id ? null : email,
+          userId: verifiedUserId,
+          guestEmail: verifiedUserId ? null : email,
           customerName: shippingDetails.name,
           customerEmail: email,
           customerPhone: phone,
@@ -493,7 +513,7 @@ export class CheckoutService {
           continue;
         }
 
-        if (variant.availabilityMode === 'stock_only' || variant.availabilityMode === 'stock_and_made_to_order') {
+        if (item.fulfillmentType === 'stock') {
           const sizeStock = variant.stocks.find((s) => s.size.toUpperCase() === item.size.toUpperCase());
           if (sizeStock) {
             const newQty = Math.max(0, sizeStock.quantity - item.quantity);
@@ -511,7 +531,7 @@ export class CheckoutService {
           }
         } else {
           console.log(
-            `[Stock Decrement] Skipping variant ${variant.sku} with availabilityMode: ${variant.availabilityMode}`
+            `[Stock Decrement] Skipping variant ${variant.sku} with fulfillmentType: ${item.fulfillmentType}`
           );
         }
       }

@@ -9,7 +9,8 @@
     "build": "tsc -p tsconfig.json",
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "ts-node prisma/seed.ts",
+    "test:pricing": "ts-node src/checkout/checkout-pricing.spec.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1058.0",
@@ -36,5 +37,8 @@
     "ts-node-dev": "^2.0.0",
     "tsconfig-paths": "^4.2.0",
     "typescript": "^5.4.5"
+  },
+  "prisma": {
+    "seed": "ts-node prisma/seed.ts"
   }
 }
