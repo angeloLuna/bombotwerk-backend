@@ -271,12 +271,13 @@ export class CheckoutService {
       });
 
       // 6. Update local Order status
-      const updatedOrder = await this.prisma.order.update({
-        where: { id: order.id },
+      const affected = await this.prisma.order.updateMany({
+        where: { id: order.id, status: { not: 'paid' } },
         data: { status: localOrderStatus },
       });
 
-      if (localOrderStatus === 'paid') {
+      if (affected.count > 0 && localOrderStatus === 'paid') {
+        await this.decrementStockForOrder(order.id);
         this.emailService.sendConfirmationEmail(order.id).catch((err) => {
           console.error('[Email Send Error in processPayment]', err);
         });
@@ -439,25 +440,83 @@ export class CheckoutService {
       });
 
       if (order.status !== localOrderStatus) {
-        await this.prisma.order.update({
-          where: { id: order.id },
+        const affected = await this.prisma.order.updateMany({
+          where: { id: order.id, status: { not: 'paid' } },
           data: { status: localOrderStatus },
         });
+
+        if (affected.count > 0 && localOrderStatus === 'paid') {
+          await this.decrementStockForOrder(order.id);
+          this.emailService.sendConfirmationEmail(order.id).catch((err) => {
+            console.error('[Email Send Error in handleWebhook]', err);
+          });
+        }
         console.log(`[MercadoPago Webhook] Order ${order.orderNumber} status updated to: ${localOrderStatus}`);
       } else {
         console.log(`[MercadoPago Webhook] Order ${order.orderNumber} status already matches: ${localOrderStatus}`);
-      }
-
-      if (localOrderStatus === 'paid') {
-        this.emailService.sendConfirmationEmail(order.id).catch((err) => {
-          console.error('[Email Send Error in handleWebhook]', err);
-        });
       }
 
       return { success: true };
     } catch (error) {
       console.error(`[MercadoPago Webhook] Error processing payment verification for ID ${paymentId}:`, error);
       throw error;
+    }
+  }
+
+  private async decrementStockForOrder(orderId: string) {
+    console.log(`[Stock Decrement] Processing stock decrement for Order ${orderId}...`);
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { id: orderId },
+        include: {
+          items: true,
+        },
+      });
+
+      if (!order) {
+        console.error(`[Stock Decrement] Order ${orderId} not found`);
+        return;
+      }
+
+      for (const item of order.items) {
+        if (!item.variantId) continue;
+
+        const variant = await this.prisma.productVariant.findUnique({
+          where: { id: item.variantId },
+          include: {
+            stocks: true,
+          },
+        });
+
+        if (!variant) {
+          console.warn(`[Stock Decrement] Variant ${item.variantId} not found for item ${item.id}`);
+          continue;
+        }
+
+        if (variant.availabilityMode === 'stock_only' || variant.availabilityMode === 'stock_and_made_to_order') {
+          const sizeStock = variant.stocks.find((s) => s.size.toUpperCase() === item.size.toUpperCase());
+          if (sizeStock) {
+            const newQty = Math.max(0, sizeStock.quantity - item.quantity);
+            await this.prisma.sizeStock.update({
+              where: { id: sizeStock.id },
+              data: { quantity: newQty },
+            });
+            console.log(
+              `[Stock Decrement] Reduced stock for variant ${variant.sku} size ${item.size} from ${sizeStock.quantity} to ${newQty} (sold ${item.quantity})`
+            );
+          } else {
+            console.warn(
+              `[Stock Decrement] SizeStock not found for variant ${variant.sku} size ${item.size}`
+            );
+          }
+        } else {
+          console.log(
+            `[Stock Decrement] Skipping variant ${variant.sku} with availabilityMode: ${variant.availabilityMode}`
+          );
+        }
+      }
+    } catch (err) {
+      console.error(`[Stock Decrement] Failed to decrement stock for Order ${orderId}:`, err);
     }
   }
 }
