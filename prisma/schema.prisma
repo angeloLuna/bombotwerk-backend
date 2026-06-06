@@ -27,6 +27,12 @@ model Product {
   media       ProductMedia[]
   images      ProductImage[]
   orderItems  OrderItem[]     @relation("ProductOrderItems")
+
+  // SEO fields
+  seoTitle       String?
+  seoDescription String?
+  seoKeywords    String?
+  canonicalSlug  String?
 }
 
 model ProductVariant {
@@ -80,6 +86,12 @@ model Collection {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   products    Product[]
+
+  // SEO fields
+  seoTitle       String?
+  seoDescription String?
+  seoKeywords    String?
+  imageAltText   String?
 }
 
 model ProductMedia {
@@ -241,4 +253,12 @@ enum ProductImageView {
   side
   detail
   not_applicable
+}
+
+model Redirect {
+  id          String   @id @default(cuid())
+  source      String   @unique
+  destination String
+  statusCode  Int      @default(301)
+  createdAt   DateTime @default(now())
 }

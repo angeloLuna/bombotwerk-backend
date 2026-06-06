@@ -111,6 +111,10 @@ export class AdminProductsService {
           isFeatured: dto.isFeatured ?? false,
           compareAtPrice: dto.compareAtPrice ?? null,
           collectionId: dto.collectionId ?? null,
+          seoTitle: dto.seoTitle ?? null,
+          seoDescription: dto.seoDescription ?? null,
+          seoKeywords: dto.seoKeywords ?? null,
+          canonicalSlug: dto.canonicalSlug ?? null,
         },
       });
 
@@ -171,10 +175,10 @@ export class AdminProductsService {
   // ─── Update ─────────────────────────────────────────────────────────────────
 
   async update(id: string, dto: UpdateProductDto) {
-    await this.findOne(id); // throws 404 if not found
+    const existing = await this.findOne(id); // throws 404 if not found
 
     // If slug is being changed, check uniqueness
-    if (dto.slug) {
+    if (dto.slug && dto.slug !== existing.slug) {
       const conflict = await this.prisma.product.findFirst({
         where: { slug: dto.slug, NOT: { id } },
       });
@@ -183,6 +187,24 @@ export class AdminProductsService {
     }
 
     return this.prisma.$transaction(async (tx) => {
+      // Create redirect if slug has changed
+      if (dto.slug && dto.slug !== existing.slug) {
+        await tx.redirect.upsert({
+          where: { source: `/product/${existing.slug}` },
+          update: { destination: `/product/${dto.slug}` },
+          create: {
+            source: `/product/${existing.slug}`,
+            destination: `/product/${dto.slug}`,
+          },
+        });
+
+        // Avoid redirect chains
+        await tx.redirect.updateMany({
+          where: { destination: `/product/${existing.slug}` },
+          data: { destination: `/product/${dto.slug}` },
+        });
+      }
+
       // 1. Update scalar fields
       await tx.product.update({
         where: { id },
@@ -197,6 +219,10 @@ export class AdminProductsService {
           ...(dto.isFeatured !== undefined && { isFeatured: dto.isFeatured }),
           ...(dto.compareAtPrice !== undefined && { compareAtPrice: dto.compareAtPrice || null }),
           ...(dto.collectionId !== undefined && { collectionId: dto.collectionId || null }),
+          ...(dto.seoTitle !== undefined && { seoTitle: dto.seoTitle || null }),
+          ...(dto.seoDescription !== undefined && { seoDescription: dto.seoDescription || null }),
+          ...(dto.seoKeywords !== undefined && { seoKeywords: dto.seoKeywords || null }),
+          ...(dto.canonicalSlug !== undefined && { canonicalSlug: dto.canonicalSlug || null }),
         },
       });
 

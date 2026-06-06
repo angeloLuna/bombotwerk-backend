@@ -122,4 +122,20 @@ export class UpdateProductDto {
   @ValidateNested({ each: true })
   @Type(() => UpdateVariantDto)
   variants?: UpdateVariantDto[];
+
+  @IsOptional()
+  @IsString()
+  seoTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  seoDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  seoKeywords?: string;
+
+  @IsOptional()
+  @IsString()
+  canonicalSlug?: string;
 }

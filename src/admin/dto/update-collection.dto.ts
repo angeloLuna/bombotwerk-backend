@@ -28,4 +28,20 @@ export class UpdateCollectionDto {
   @IsOptional()
   @IsString()
   heroImageUrl?: string;
+
+  @IsOptional()
+  @IsString()
+  seoTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  seoDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  seoKeywords?: string;
+
+  @IsOptional()
+  @IsString()
+  imageAltText?: string;
 }

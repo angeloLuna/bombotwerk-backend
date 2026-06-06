@@ -228,6 +228,12 @@ export class ProductsService {
     });
 
     if (!product || !product.isActive) {
+      const redirect = await this.prisma.redirect.findUnique({
+        where: { source: `/product/${slug}` },
+      });
+      if (redirect) {
+        return { redirect: true, destination: redirect.destination } as any;
+      }
       throw new NotFoundException(`Product with slug "${slug}" not found.`);
     }
 

@@ -25,7 +25,7 @@ async function main() {
       name: 'LATIN PULSE',
       slug: 'latin-pulse',
       tagline: 'RHYTHM OF THE NIGHT',
-      description: 'Curated performance pieces featuring high-gloss technical finishes that catch every beam of light, designed for high-intensity movement and night energy.',
+      description: 'Piezas de performance curadas con acabados técnicos de alto brillo que capturan cada haz de luz, diseñadas para el movimiento de alta intensidad y la energía nocturna.',
       bgImage: 'https://images.unsplash.com/photo-1518310383802-640c2de311b2?q=80&w=1000',
     },
   });
@@ -35,7 +35,7 @@ async function main() {
       name: 'NOCTURNAL PULSE',
       slug: 'nocturnal-pulse',
       tagline: 'SEDUCTIVE SILHOUETTES',
-      description: 'Seductive silhouettes engineered for high-intensity movement and neon-lit floors. A dark editorial statement that blends studio luxury with dancehall energy.',
+      description: 'Siluetas seductoras diseñadas para el movimiento de alta intensidad y pistas iluminadas por neón. Una propuesta editorial oscura que fusiona el lujo de estudio con la energía del dancehall.',
       bgImage: 'https://images.unsplash.com/photo-1508700115892-45ecd05ae2ad?q=80&w=1000',
     },
   });
@@ -45,7 +45,7 @@ async function main() {
       name: 'VELVET MOTION',
       slug: 'velvet-motion',
       tagline: 'LIQUID TEXTURES',
-      description: 'Liquid textures that capture the amber glow of the midnight pulse. Soft to the touch, heavy on performance, crafting an unforgettable skin-to-fabric sensation.',
+      description: 'Texturas líquidas que capturan el resplandor ámbar de la medianoche. Suaves al tacto y de alto rendimiento, creando una sensación inolvidable sobre la piel.',
       bgImage: 'https://images.unsplash.com/photo-1504609773096-104ff2c73ba4?q=80&w=1000',
     },
   });
@@ -57,7 +57,7 @@ async function main() {
     {
       name: 'LATIN PULSE LEGGING',
       slug: 'latin-pulse-legging',
-      description: 'High-gloss technical finishes that match every beam of light. Anatomical seams and compressive zones engineered for maximum flexibility during high-intensity sequences.',
+      description: 'Leggings con acabados técnicos de alto brillo que combinan con cada haz de luz. Costuras anatómicas y zonas de compresión diseñadas para máxima flexibilidad en secuencias de alta intensidad.',
       price: 1850.00,
       category: 'cacheteros',
       isFeatured: true,
@@ -87,7 +87,7 @@ async function main() {
     {
       name: 'NOCTURNAL CROP',
       slug: 'nocturnal-crop',
-      description: 'Designed to sculpt and move with you. High-stretch performance fabric with a glossy sheen and a double-strap support system that thrives under the spotlight.',
+      description: 'Diseñado para esculpir y moverse contigo. Tela de rendimiento de alta elasticidad con brillo satinado y un sistema de soporte de doble tirante ideal para destacar bajo los reflectores.',
       price: 980.00,
       category: 'arneses',
       isFeatured: true,
@@ -116,7 +116,7 @@ async function main() {
     {
       name: 'GOLDEN CORE CHAIN',
       slug: 'golden-core-chain',
-      description: 'Complete the look with this heavy-drape reflective body accessory. Captures the warm amber tones of the CDMX night.',
+      description: 'Completa tu look de twerk o pole con este accesorio corporal reflectante de caída pesada. Captura los tonos ámbar cálidos de la noche en la CDMX.',
       price: 450.00,
       compareAtPrice: 600.00,
       category: 'arneses',
@@ -142,7 +142,7 @@ async function main() {
     {
       name: 'PULSE HEELS',
       slug: 'pulse-heels',
-      description: 'Extreme-comfort stiletto heels with a high-gloss finish, designed to stabilize and secure footwork during twerk and pole routines.',
+      description: 'Tacones stiletto de comodidad extrema con acabado de alto brillo, diseñados para estabilizar y asegurar el footwork en rutinas de twerk y pole dance.',
       price: 2400.00,
       compareAtPrice: 2900.00,
       category: 'arneses',
@@ -168,7 +168,7 @@ async function main() {
     {
       name: 'MOTION LEGGINGS',
       slug: 'motion-leggings',
-      description: 'Textured mesh paneling legging for ventilation and sheer styling. Created with reinforced panels for high-friction support.',
+      description: 'Leggings con paneles de malla texturizada para ventilación y un estilo translúcido. Creados con paneles reforzados para soporte de alta fricción.',
       price: 1800.00,
       category: 'cacheteros',
       collectionId: c2.id,
@@ -195,7 +195,7 @@ async function main() {
     {
       name: 'CLUB GLOW T-SHIRT',
       slug: 'club-glow-tshirt',
-      description: 'Relaxed fit drop shoulder tee with reflective branding that reacts with camera flashes.',
+      description: 'Playera de corte relajado y hombro caído con branding reflectante que reacciona con los flashes de las cámaras, perfecta para clubwear.',
       price: 850.00,
       compareAtPrice: 1200.00,
       category: 'conjuntos',
@@ -223,7 +223,7 @@ async function main() {
     {
       name: 'SAVAGE GLOW BODY',
       slug: 'savage-glow-body',
-      description: 'Ultra-contouring sleeveless performance bodysuit, equipped with custom elastic straps and glossy reflective magenta detailing.',
+      description: 'Bodysuit de performance sin mangas y ultra-moldeador, equipado con tirantes elásticos personalizados y detalles magenta reflectantes de alto brillo.',
       price: 1650.00,
       category: 'bodys',
       isFeatured: true,
@@ -251,7 +251,7 @@ async function main() {
     {
       name: 'VELVET MOTION SHORTS',
       slug: 'velvet-motion-shorts',
-      description: 'Rich velvet-feel styling shorts with side cinch-ties to adjust rise and drape. Ideal for both floorwork and stage performance.',
+      description: 'Shorts de estilo con textura aterciopelada y jaretas laterales para ajustar el tiro y la caída. Ideales para floorwork, pole y performance.',
       price: 780.00,
       category: 'faldas-flecos',
       collectionId: c3.id,

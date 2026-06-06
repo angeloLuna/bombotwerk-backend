@@ -113,4 +113,20 @@ export class CreateProductDto {
   @ValidateNested({ each: true })
   @Type(() => CreateVariantDto)
   variants: CreateVariantDto[];
+
+  @IsOptional()
+  @IsString()
+  seoTitle?: string;
+
+  @IsOptional()
+  @IsString()
+  seoDescription?: string;
+
+  @IsOptional()
+  @IsString()
+  seoKeywords?: string;
+
+  @IsOptional()
+  @IsString()
+  canonicalSlug?: string;
 }

@@ -116,6 +116,12 @@ export class CollectionsService {
     });
 
     if (!collection) {
+      const redirect = await this.prisma.redirect.findUnique({
+        where: { source: `/colecciones/${slug}` },
+      });
+      if (redirect) {
+        return { redirect: true, destination: redirect.destination } as any;
+      }
       throw new NotFoundException(`Collection with slug "${slug}" not found.`);
     }
 
