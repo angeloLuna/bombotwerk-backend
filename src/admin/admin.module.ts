@@ -11,6 +11,8 @@ import { AdminCollectionsService } from './admin-collections.service';
 import { AdminOrdersService } from './admin-orders.service';
 import { AdminUsersService } from './admin-users.service';
 import { AdminDashboardService } from './admin-dashboard.service';
+import { AdminMerchandisingController } from './admin-merchandising.controller';
+import { AdminMerchandisingService } from './admin-merchandising.service';
 
 import { StorageModule } from '../storage/storage.module';
 import { EmailModule } from '../email/email.module';
@@ -24,6 +26,7 @@ import { EmailModule } from '../email/email.module';
     AdminUsersController,
     AdminLogsController,
     AdminDashboardController,
+    AdminMerchandisingController,
   ],
   providers: [
     AdminProductsService,
@@ -31,6 +34,7 @@ import { EmailModule } from '../email/email.module';
     AdminOrdersService,
     AdminUsersService,
     AdminDashboardService,
+    AdminMerchandisingService,
   ],
 })
 export class AdminModule {}

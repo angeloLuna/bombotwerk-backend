@@ -11,6 +11,7 @@ import { AuthModule } from './auth/auth.module';
 import { StorageModule } from './storage/storage.module';
 import { EmailModule } from './email/email.module';
 import { LoggingModule } from './logging/logging.module';
+import { MerchandisingModule } from './merchandising/merchandising.module';
 
 @Module({
   imports: [
@@ -26,6 +27,7 @@ import { LoggingModule } from './logging/logging.module';
     StorageModule,
     EmailModule,
     LoggingModule,
+    MerchandisingModule,
   ],
   controllers: [],
   providers: [],

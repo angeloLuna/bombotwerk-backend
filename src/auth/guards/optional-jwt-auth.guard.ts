@@ -4,13 +4,17 @@ import {
   Injectable,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { PrismaService } from '../../prisma/prisma.service';
 import * as jwt from 'jsonwebtoken';
 
 @Injectable()
 export class OptionalJwtAuthGuard implements CanActivate {
   private jwtSecret: string;
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly prisma: PrismaService,
+  ) {
     this.jwtSecret =
       this.configService.get<string>('BACKEND_JWT_SECRET') ||
       'fallback-secret-for-jwt-signing-12345';
@@ -33,12 +37,21 @@ export class OptionalJwtAuthGuard implements CanActivate {
     try {
       const decoded = jwt.verify(token, this.jwtSecret) as any;
       
-      // Attach user profile info to request context
-      request.user = {
-        id: decoded.userId,
-        email: decoded.email,
-        role: decoded.role,
-      };
+      if (decoded && decoded.userId) {
+        // Verify user exists in database to prevent stale guest session linking errors
+        const user = await this.prisma.user.findUnique({
+          where: { id: decoded.userId },
+        });
+
+        if (user) {
+          // Attach user profile info to request context
+          request.user = {
+            id: user.id,
+            email: user.email,
+            role: user.role,
+          };
+        }
+      }
     } catch (error: any) {
       // Invalid or expired token, proceed as guest rather than throwing error
       console.warn('[OptionalJwtAuthGuard] Invalid or expired token:', error?.message);

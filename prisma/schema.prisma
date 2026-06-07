@@ -323,3 +323,21 @@ model OrderNote {
   @@index([orderId])
   @@index([adminUserId])
 }
+
+model ProductTypeCard {
+  id          String   @id @default(cuid())
+  title       String
+  slug        String
+  description String?
+  imageUrl    String
+  imageAlt    String?
+  badgeLabel  String?
+  badgeType   String?
+  href        String
+  linkType    String   @default("category") // collection, category, search, offer, external
+  sortOrder   Int      @default(0)
+  isActive    Boolean  @default(true)
+  highlight   Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
