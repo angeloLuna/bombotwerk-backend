@@ -1,4 +1,4 @@
-import { IsString, IsOptional } from 'class-validator';
+import { IsString, IsOptional, IsBoolean, IsInt } from 'class-validator';
 
 export class UpdateCollectionDto {
   @IsOptional()
@@ -44,4 +44,12 @@ export class UpdateCollectionDto {
   @IsOptional()
   @IsString()
   imageAltText?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
 }

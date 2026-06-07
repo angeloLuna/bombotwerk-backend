@@ -16,7 +16,10 @@ export class AdminCollectionsService {
       include: {
         _count: { select: { products: true } },
       },
-      orderBy: { name: 'asc' },
+      orderBy: [
+        { sortOrder: 'asc' },
+        { name: 'asc' },
+      ],
     });
   }
 
@@ -34,6 +37,8 @@ export class AdminCollectionsService {
         seoDescription: dto.seoDescription ?? null,
         seoKeywords: dto.seoKeywords ?? null,
         imageAltText: dto.imageAltText ?? null,
+        isActive: dto.isActive !== undefined ? dto.isActive : true,
+        sortOrder: dto.sortOrder !== undefined ? dto.sortOrder : 0,
       },
     });
 
@@ -94,6 +99,8 @@ export class AdminCollectionsService {
           ...(dto.seoDescription !== undefined && { seoDescription: dto.seoDescription || null }),
           ...(dto.seoKeywords !== undefined && { seoKeywords: dto.seoKeywords || null }),
           ...(dto.imageAltText !== undefined && { imageAltText: dto.imageAltText || null }),
+          ...(dto.isActive !== undefined && { isActive: dto.isActive }),
+          ...(dto.sortOrder !== undefined && { sortOrder: dto.sortOrder }),
         },
       });
 

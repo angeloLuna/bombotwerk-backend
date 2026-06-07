@@ -86,6 +86,8 @@ model Collection {
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
   products    Product[]
+  isActive    Boolean    @default(true)
+  sortOrder     Int        @default(0)
 
   // SEO fields
   seoTitle       String?

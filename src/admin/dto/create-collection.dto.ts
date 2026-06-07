@@ -1,4 +1,4 @@
-import { IsString, IsNotEmpty, IsOptional } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, IsBoolean, IsInt } from 'class-validator';
 
 export class CreateCollectionDto {
   @IsString()
@@ -44,4 +44,12 @@ export class CreateCollectionDto {
   @IsOptional()
   @IsString()
   imageAltText?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+
+  @IsOptional()
+  @IsInt()
+  sortOrder?: number;
 }

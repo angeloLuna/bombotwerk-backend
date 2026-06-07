@@ -84,7 +84,22 @@ export class CollectionsService {
 
   async findAll() {
     return this.prisma.collection.findMany({
-      orderBy: { name: 'asc' },
+      where: { isActive: true },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        tagline: true,
+        description: true,
+        bgImage: true,
+        coverImageUrl: true,
+        heroImageUrl: true,
+        sortOrder: true,
+      },
+      orderBy: [
+        { sortOrder: 'asc' },
+        { name: 'asc' },
+      ],
     });
   }
 
