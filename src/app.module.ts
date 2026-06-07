@@ -10,6 +10,7 @@ import { CheckoutModule } from './checkout/checkout.module';
 import { AuthModule } from './auth/auth.module';
 import { StorageModule } from './storage/storage.module';
 import { EmailModule } from './email/email.module';
+import { LoggingModule } from './logging/logging.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { EmailModule } from './email/email.module';
     AuthModule,
     StorageModule,
     EmailModule,
+    LoggingModule,
   ],
   controllers: [],
   providers: [],

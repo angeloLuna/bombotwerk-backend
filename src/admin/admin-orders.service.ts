@@ -11,6 +11,8 @@ export class AdminOrdersService {
 
   async findAll(filters: {
     status?: string;
+    fulfillmentStatus?: string;
+    fulfillmentPreset?: string;
     email?: string;
     orderNumber?: string;
     startDate?: string;
@@ -20,6 +22,25 @@ export class AdminOrdersService {
 
     if (filters.status) {
       whereClause.status = filters.status;
+    }
+
+    if (filters.fulfillmentStatus) {
+      whereClause.fulfillmentStatus = filters.fulfillmentStatus;
+    }
+
+    if (filters.fulfillmentPreset) {
+      if (filters.fulfillmentPreset === 'pending_prepare') {
+        whereClause.status = 'paid';
+        whereClause.fulfillmentStatus = { in: ['pending_review', 'paid', 'preparing', 'in_production', 'ready_to_ship'] };
+      } else if (filters.fulfillmentPreset === 'in_production') {
+        whereClause.fulfillmentStatus = 'in_production';
+      } else if (filters.fulfillmentPreset === 'ready_to_ship') {
+        whereClause.fulfillmentStatus = 'ready_to_ship';
+      } else if (filters.fulfillmentPreset === 'shipped') {
+        whereClause.fulfillmentStatus = 'shipped';
+      } else if (filters.fulfillmentPreset === 'cancelled') {
+        whereClause.fulfillmentStatus = 'cancelled';
+      }
     }
 
     if (filters.email) {
@@ -64,6 +85,7 @@ export class AdminOrdersService {
       customerEmail: order.customerEmail,
       customerPhone: order.customerPhone,
       status: order.status,
+      fulfillmentStatus: order.fulfillmentStatus,
       subtotal: Number(order.subtotal),
       shippingTotal: Number(order.shippingTotal),
       total: Number(order.total),
@@ -73,6 +95,11 @@ export class AdminOrdersService {
       confirmationEmailSentAt: order.confirmationEmailSentAt,
       confirmationEmailStatus: order.confirmationEmailStatus,
       confirmationEmailError: order.confirmationEmailError,
+      carrier: order.carrier,
+      trackingNumber: order.trackingNumber,
+      trackingUrl: order.trackingUrl,
+      shippedAt: order.shippedAt,
+      deliveredAt: order.deliveredAt,
       payment: order.payment ? {
         id: order.payment.id,
         provider: order.payment.provider,
@@ -111,6 +138,20 @@ export class AdminOrdersService {
       include: {
         payment: true,
         items: true,
+        notes: {
+          include: {
+            adminUser: {
+              select: {
+                name: true,
+                email: true,
+                image: true,
+              },
+            },
+          },
+          orderBy: {
+            createdAt: 'desc',
+          },
+        },
       },
     });
 
@@ -128,6 +169,7 @@ export class AdminOrdersService {
       billingAddress: order.billingAddress,
       shippingMethod: order.shippingMethod,
       status: order.status,
+      fulfillmentStatus: order.fulfillmentStatus,
       subtotal: Number(order.subtotal),
       shippingTotal: Number(order.shippingTotal),
       total: Number(order.total),
@@ -157,6 +199,14 @@ export class AdminOrdersService {
       secondPackageEstimatedMaxBusinessDays: order.secondPackageEstimatedMaxBusinessDays,
       fulfillmentNotes: order.fulfillmentNotes,
       shippingNotes: order.shippingNotes,
+      
+      // Shipping tracking fields
+      carrier: order.carrier,
+      trackingNumber: order.trackingNumber,
+      trackingUrl: order.trackingUrl,
+      shippedAt: order.shippedAt,
+      deliveredAt: order.deliveredAt,
+
       payment: order.payment ? {
         id: order.payment.id,
         provider: order.payment.provider,
@@ -186,6 +236,16 @@ export class AdminOrdersService {
         madeToOrderMinDays: item.madeToOrderMinDays,
         madeToOrderMaxDays: item.madeToOrderMaxDays,
       })),
+      notes: order.notes.map(note => ({
+        id: note.id,
+        content: note.content,
+        createdAt: note.createdAt,
+        adminUser: note.adminUser ? {
+          name: note.adminUser.name,
+          email: note.adminUser.email,
+          image: note.adminUser.image,
+        } : null,
+      })),
     };
   }
 
@@ -212,6 +272,181 @@ export class AdminOrdersService {
       confirmationEmailStatus: updated.confirmationEmailStatus,
       confirmationEmailSentAt: updated.confirmationEmailSentAt,
       confirmationEmailError: updated.confirmationEmailError,
+    };
+  }
+
+  async updateStatus(id: string, status: string, adminUserId: string) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Order with ID "${id}" not found.`);
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: { status },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_order_status',
+        entityType: 'Order',
+        entityId: id,
+        before: { status: existing.status },
+        after: { status: updated.status },
+      },
+    });
+
+    return {
+      id: updated.id,
+      orderNumber: updated.orderNumber,
+      status: updated.status,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  async updateFulfillmentStatus(id: string, fulfillmentStatus: string, adminUserId: string) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Order with ID "${id}" not found.`);
+    }
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: { fulfillmentStatus },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_order_fulfillment_status',
+        entityType: 'Order',
+        entityId: id,
+        before: { fulfillmentStatus: existing.fulfillmentStatus },
+        after: { fulfillmentStatus: updated.fulfillmentStatus },
+      },
+    });
+
+    return {
+      id: updated.id,
+      fulfillmentStatus: updated.fulfillmentStatus,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  async updateShipping(id: string, dto: any, adminUserId: string) {
+    const existing = await this.prisma.order.findUnique({
+      where: { id },
+    });
+    if (!existing) {
+      throw new NotFoundException(`Order with ID "${id}" not found.`);
+    }
+
+    const shippedAt = dto.shippedAt ? new Date(dto.shippedAt) : new Date();
+    const deliveredAt = dto.deliveredAt ? new Date(dto.deliveredAt) : null;
+    const fulfillmentStatus = 'shipped';
+
+    const updated = await this.prisma.order.update({
+      where: { id },
+      data: {
+        carrier: dto.carrier,
+        trackingNumber: dto.trackingNumber,
+        trackingUrl: dto.trackingUrl || null,
+        shippedAt,
+        deliveredAt,
+        fulfillmentStatus,
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_order_shipping',
+        entityType: 'Order',
+        entityId: id,
+        before: {
+          carrier: existing.carrier,
+          trackingNumber: existing.trackingNumber,
+          trackingUrl: existing.trackingUrl,
+          shippedAt: existing.shippedAt,
+          deliveredAt: existing.deliveredAt,
+          fulfillmentStatus: existing.fulfillmentStatus,
+        },
+        after: {
+          carrier: updated.carrier,
+          trackingNumber: updated.trackingNumber,
+          trackingUrl: updated.trackingUrl,
+          shippedAt: updated.shippedAt,
+          deliveredAt: updated.deliveredAt,
+          fulfillmentStatus: updated.fulfillmentStatus,
+        },
+      },
+    });
+
+    return {
+      id: updated.id,
+      carrier: updated.carrier,
+      trackingNumber: updated.trackingNumber,
+      trackingUrl: updated.trackingUrl,
+      shippedAt: updated.shippedAt,
+      deliveredAt: updated.deliveredAt,
+      fulfillmentStatus: updated.fulfillmentStatus,
+      updatedAt: updated.updatedAt,
+    };
+  }
+
+  async addNote(id: string, content: string, adminUserId: string) {
+    const order = await this.prisma.order.findUnique({
+      where: { id },
+    });
+    if (!order) {
+      throw new NotFoundException(`Order with ID "${id}" not found.`);
+    }
+
+    const note = await this.prisma.orderNote.create({
+      data: {
+        orderId: id,
+        adminUserId,
+        content,
+      },
+      include: {
+        adminUser: {
+          select: {
+            name: true,
+            email: true,
+            image: true,
+          },
+        },
+      },
+    });
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_order_internal_notes',
+        entityType: 'Order',
+        entityId: id,
+        metadata: {
+          noteId: note.id,
+          contentPreview: content.substring(0, 100),
+        },
+      },
+    });
+
+    return {
+      id: note.id,
+      orderId: note.orderId,
+      content: note.content,
+      createdAt: note.createdAt,
+      adminUser: note.adminUser ? {
+        name: note.adminUser.name,
+        email: note.adminUser.email,
+        image: note.adminUser.image,
+      } : null,
     };
   }
 }

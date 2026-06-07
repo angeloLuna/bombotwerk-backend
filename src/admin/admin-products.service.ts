@@ -89,7 +89,7 @@ export class AdminProductsService {
 
   // ─── Create ─────────────────────────────────────────────────────────────────
 
-  async create(dto: CreateProductDto) {
+  async create(dto: CreateProductDto, adminUserId: string) {
     // Ensure slug is unique
     const existing = await this.prisma.product.findUnique({
       where: { slug: dto.slug },
@@ -168,13 +168,26 @@ export class AdminProductsService {
         where: { id: product.id },
         include: PRODUCT_INCLUDE,
       });
-      return this.formatProductImages(res);
+      const formatted = this.formatProductImages(res);
+
+      // Log Audit Log
+      await tx.auditLog.create({
+        data: {
+          adminUserId,
+          action: 'admin_created_product',
+          entityType: 'Product',
+          entityId: product.id,
+          after: JSON.parse(JSON.stringify(formatted)),
+        },
+      });
+
+      return formatted;
     });
   }
 
   // ─── Update ─────────────────────────────────────────────────────────────────
 
-  async update(id: string, dto: UpdateProductDto) {
+  async update(id: string, dto: UpdateProductDto, adminUserId: string) {
     const existing = await this.findOne(id); // throws 404 if not found
 
     // If slug is being changed, check uniqueness
@@ -332,18 +345,60 @@ export class AdminProductsService {
         where: { id },
         include: PRODUCT_INCLUDE,
       });
-      return this.formatProductImages(res);
+      const formatted = this.formatProductImages(res);
+
+      // Log Audit Log
+      await tx.auditLog.create({
+        data: {
+          adminUserId,
+          action: 'admin_updated_product',
+          entityType: 'Product',
+          entityId: id,
+          before: JSON.parse(JSON.stringify(existing)),
+          after: JSON.parse(JSON.stringify(formatted)),
+        },
+      });
+
+      // If variants/stocks were updated, log admin_updated_inventory
+      if (dto.variants !== undefined) {
+        await tx.auditLog.create({
+          data: {
+            adminUserId,
+            action: 'admin_updated_inventory',
+            entityType: 'Product',
+            entityId: id,
+            before: JSON.parse(JSON.stringify(existing.variants || [])),
+            after: JSON.parse(JSON.stringify(formatted.variants || [])),
+          },
+        });
+      }
+
+      return formatted;
     });
   }
 
   // ─── Deactivate (soft-delete) ────────────────────────────────────────────────
 
-  async deactivate(id: string) {
-    await this.findOne(id);
-    return this.prisma.product.update({
+  async deactivate(id: string, adminUserId: string) {
+    const existing = await this.findOne(id);
+    const res = await this.prisma.product.update({
       where: { id },
       data: { isActive: false },
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_product',
+        entityType: 'Product',
+        entityId: id,
+        before: JSON.parse(JSON.stringify(existing)),
+        after: JSON.parse(JSON.stringify(res)),
+        metadata: { deactivated: true },
+      },
+    });
+
+    return res;
   }
 
   // ─── Image Management ────────────────────────────────────────────────────────
@@ -355,6 +410,7 @@ export class AdminProductsService {
     type?: any,
     isCover?: boolean,
     sortOrder?: number,
+    adminUserId?: string,
   ) {
     // 1. Check if product exists
     const product = await this.prisma.product.findUnique({
@@ -406,6 +462,19 @@ export class AdminProductsService {
       },
     });
 
+    if (adminUserId) {
+      await this.prisma.auditLog.create({
+        data: {
+          adminUserId,
+          action: 'admin_uploaded_image',
+          entityType: 'ProductImage',
+          entityId: newImage.id,
+          after: JSON.parse(JSON.stringify(newImage)),
+          metadata: { productId },
+        },
+      });
+    }
+
     const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
     return {
       ...newImage,
@@ -416,6 +485,7 @@ export class AdminProductsService {
   async addImageUrl(
     productId: string,
     dto: { url: string; alt?: string; type?: string; isCover?: boolean; sortOrder?: number },
+    adminUserId: string,
   ) {
     // Check if product exists
     const product = await this.prisma.product.findUnique({
@@ -455,6 +525,17 @@ export class AdminProductsService {
       },
     });
 
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_uploaded_image',
+        entityType: 'ProductImage',
+        entityId: newImage.id,
+        after: JSON.parse(JSON.stringify(newImage)),
+        metadata: { productId },
+      },
+    });
+
     return newImage;
   }
 
@@ -462,6 +543,7 @@ export class AdminProductsService {
     productId: string,
     imageId: string,
     dto: { alt?: string; type?: string; sortOrder?: number; isCover?: boolean },
+    adminUserId: string,
   ) {
     // Verify product exists
     const product = await this.prisma.product.findUnique({
@@ -497,6 +579,18 @@ export class AdminProductsService {
       },
     });
 
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_product',
+        entityType: 'ProductImage',
+        entityId: imageId,
+        before: JSON.parse(JSON.stringify(image)),
+        after: JSON.parse(JSON.stringify(updated)),
+        metadata: { productId, detail: 'Updated image metadata' },
+      },
+    });
+
     const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');
     return {
       ...updated,
@@ -504,7 +598,7 @@ export class AdminProductsService {
     };
   }
 
-  async reorderImages(productId: string, ids: string[]) {
+  async reorderImages(productId: string, ids: string[], adminUserId: string) {
     // Verify product exists
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
@@ -523,10 +617,20 @@ export class AdminProductsService {
       ),
     );
 
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_updated_product',
+        entityType: 'Product',
+        entityId: productId,
+        metadata: { reorderedImageIds: ids },
+      },
+    });
+
     return { success: true };
   }
 
-  async deleteImage(productId: string, imageId: string) {
+  async deleteImage(productId: string, imageId: string, adminUserId: string) {
     // Verify image exists
     const image = await this.prisma.productImage.findFirst({
       where: { id: imageId, productId },
@@ -566,10 +670,21 @@ export class AdminProductsService {
       }
     }
 
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_deleted_image',
+        entityType: 'ProductImage',
+        entityId: imageId,
+        before: JSON.parse(JSON.stringify(image)),
+        metadata: { productId },
+      },
+    });
+
     return { success: true };
   }
 
-  async uploadRawImage(productId: string, file: Express.Multer.File) {
+  async uploadRawImage(productId: string, file: Express.Multer.File, adminUserId?: string) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
     });
@@ -591,9 +706,11 @@ export class AdminProductsService {
   async updateImagesBulk(
     productId: string,
     dto: { images: any[]; deletedImageIds: string[] },
+    adminUserId: string,
   ) {
     const product = await this.prisma.product.findUnique({
       where: { id: productId },
+      include: { images: true },
     });
     if (!product) {
       throw new NotFoundException(`Product with ID "${productId}" not found.`);
@@ -676,6 +793,19 @@ export class AdminProductsService {
           { sortOrder: 'asc' },
           { createdAt: 'asc' },
         ],
+      });
+
+      // Log bulk image update to audit log
+      await tx.auditLog.create({
+        data: {
+          adminUserId,
+          action: 'admin_updated_product',
+          entityType: 'Product',
+          entityId: productId,
+          before: JSON.parse(JSON.stringify(product.images || [])),
+          after: JSON.parse(JSON.stringify(updatedImages || [])),
+          metadata: { detail: 'Bulk image update', deletedImageIds },
+        },
       });
 
       const publicBaseUrl = (process.env.R2_PUBLIC_BASE_URL || '').replace(/\/$/, '');

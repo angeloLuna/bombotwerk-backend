@@ -20,8 +20,8 @@ export class AdminCollectionsService {
     });
   }
 
-  async create(dto: CreateCollectionDto) {
-    return this.prisma.collection.create({
+  async create(dto: CreateCollectionDto, adminUserId: string) {
+    const collection = await this.prisma.collection.create({
       data: {
         name: dto.name,
         slug: dto.slug,
@@ -36,9 +36,21 @@ export class AdminCollectionsService {
         imageAltText: dto.imageAltText ?? null,
       },
     });
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_created_collection',
+        entityType: 'Collection',
+        entityId: collection.id,
+        after: JSON.parse(JSON.stringify(collection)),
+      },
+    });
+
+    return collection;
   }
 
-  async update(id: string, dto: UpdateCollectionDto) {
+  async update(id: string, dto: UpdateCollectionDto, adminUserId: string) {
     const existing = await this.prisma.collection.findUnique({ where: { id } });
     if (!existing) throw new NotFoundException(`Collection ${id} not found`);
 
@@ -68,7 +80,7 @@ export class AdminCollectionsService {
         });
       }
 
-      return tx.collection.update({
+      const updated = await tx.collection.update({
         where: { id },
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
@@ -84,15 +96,39 @@ export class AdminCollectionsService {
           ...(dto.imageAltText !== undefined && { imageAltText: dto.imageAltText || null }),
         },
       });
+
+      await tx.auditLog.create({
+        data: {
+          adminUserId,
+          action: 'admin_updated_collection',
+          entityType: 'Collection',
+          entityId: id,
+          before: JSON.parse(JSON.stringify(existing)),
+          after: JSON.parse(JSON.stringify(updated)),
+        },
+      });
+
+      return updated;
     });
   }
 
-  async uploadImage(file: Express.Multer.File) {
+  async uploadImage(file: Express.Multer.File, adminUserId: string) {
     if (!file) {
       throw new BadRequestException('El archivo de imagen es requerido.');
     }
 
     const uploadResult = await this.storage.uploadFile(file, 'collections/uploads');
+
+    await this.prisma.auditLog.create({
+      data: {
+        adminUserId,
+        action: 'admin_uploaded_image',
+        entityType: 'CollectionImage',
+        entityId: uploadResult.key,
+        after: { url: uploadResult.publicUrl },
+      },
+    });
+
     return {
       url: uploadResult.publicUrl,
       key: uploadResult.key,

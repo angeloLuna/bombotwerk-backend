@@ -10,7 +10,8 @@
     "prisma:generate": "prisma generate",
     "prisma:push": "prisma db push",
     "seed": "ts-node prisma/seed.ts",
-    "test:pricing": "ts-node src/checkout/checkout-pricing.spec.ts"
+    "test:pricing": "ts-node src/checkout/checkout-pricing.spec.ts",
+    "test:admin": "ts-node src/admin/admin-users-audit.spec.ts"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1058.0",
